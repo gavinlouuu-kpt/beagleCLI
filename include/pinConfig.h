@@ -4,8 +4,14 @@
 const int U2_RX = 16;
 const int U2_TX = 17;
 // use of pin 23 with pinMode declaration causes sd card to not initialize properly
-const int PWM_Heater = 15;
-const int PWM_Vin = 12;
+const int PWM_Heater = 15; // white
+const int PWM_Vin = 12;    // black
+const int pump_relay = 45;
+const int clean_5r = 44;
+const int clean_4r = 43;
+const int clean_3r = 42;
+const int clean_2r = 41;
+const int clean_1r = 40;
 
 // const int ADS_RDY = 39; // ADS1115 ready pin at SENSOR_VN
 // const int BAT = 34; // Read battery voltage

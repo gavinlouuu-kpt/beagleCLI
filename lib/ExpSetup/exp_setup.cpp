@@ -21,7 +21,7 @@
 int heatingTime;
 std::vector<int> heaterSettings;
 std::unordered_map<int, std::vector<std::pair<unsigned long, uint32_t>>> UOM_sensorData;
-std::unordered_map<int, std::vector<std::pair<unsigned long, std::array<uint8_t, 4>>>> ADS_sensorData;
+std::unordered_map<int, std::vector<std::pair<unsigned long, std::array<int16_t, 4>>>> ADS_sensorData;
 
 uint8_t ADSi2c = 0x48;
 int last_setup_tracker = -1;
@@ -200,7 +200,7 @@ void exp_loop(FirebaseJson config, int setup_count, int exp_time = 10000)
     int sensorType = sensorCheck();
     mutexEdit(EXP_WARMING_UP);
     Serial.println("State = EXP_WARMING_UP" + String(expState));
-    std::vector<uint8_t> pump_on = switchCommand(1, 47, 1);
+    std::vector<uint8_t> pump_on = switchCommand(1, pump_relay, 1);
     Serial2.write(pump_on.data(), pump_on.size());
     ledcWrite(PWM_Vin, 255);
     // Serial.println("Pump command: ");
@@ -300,7 +300,7 @@ void exp_loop(FirebaseJson config, int setup_count, int exp_time = 10000)
     {
         vTaskDelete(adsTaskHandle);
     }
-    std::vector<uint8_t> pump_off = switchCommand(1, 47, 0);
+    std::vector<uint8_t> pump_off = switchCommand(1, pump_relay, 0);
     Serial2.write(pump_off.data(), pump_off.size());
     // Serial.println("Pump off command: ");
     // for (uint8_t i : pump_off)
@@ -520,7 +520,7 @@ void saveUOMData(std::unordered_map<int, std::vector<std::pair<unsigned long, ui
     UOM_sensorData.clear();
 }
 
-void saveADSData(std::unordered_map<int, std::vector<std::pair<unsigned long, std::array<uint8_t, 4>>>> &ADS_sensorData, int setup_tracker, int repeat_tracker, int channel_tracker, String exp_name)
+void saveADSData(std::unordered_map<int, std::vector<std::pair<unsigned long, std::array<int16_t, 4>>>> &ADS_sensorData, int setup_tracker, int repeat_tracker, int channel_tracker, String exp_name)
 {
     struct tm timeinfo;
     if (!getLocalTime(&timeinfo))
@@ -651,7 +651,7 @@ void ads_heaterSettings(std::vector<int> settings)
     heaterSettings = settings;
 }
 
-int UOM_sensorADS(std::unordered_map<int, std::vector<std::pair<unsigned long, std::array<uint8_t, 4>>>> &ADS_sensorData, std::vector<int> heaterSettings, int heatingTime)
+int UOM_sensorADS(std::unordered_map<int, std::vector<std::pair<unsigned long, std::array<int16_t, 4>>>> &ADS_sensorData, std::vector<int> heaterSettings, int heatingTime)
 {
     if (!ads.begin(ADSi2c))
     {
@@ -666,7 +666,7 @@ int UOM_sensorADS(std::unordered_map<int, std::vector<std::pair<unsigned long, s
         // delay(heatingTime);
         // unsigned long timestamp = millis() - startTime;
         unsigned long timestamp = millis(); // relative timestamp has a resetting bug that needs to be fixed
-        std::array<uint8_t, 4> ADSreadings = {ads.readADC_SingleEnded(0), ads.readADC_SingleEnded(1), ads.readADC_SingleEnded(2), ads.readADC_SingleEnded(3)};
+        std::array<int16_t, 4> ADSreadings = {ads.readADC_SingleEnded(0), ads.readADC_SingleEnded(1), ads.readADC_SingleEnded(2), ads.readADC_SingleEnded(3)};
         ADS_sensorData[setting].push_back(std::make_pair(timestamp, ADSreadings));
     }
 
@@ -745,12 +745,13 @@ void checkState()
 void ads_pwm_test()
 {
     ads.begin(ADSi2c);
-    for (int i = 0; i < 256; i = i + 10)
+    // ledcWrite(PWM_H_CH, 150);
+    for (int i = 0; i < 256; i = i + 50)
     {
         ledcWrite(PWM_V_CH, i);
-        ledcWrite(PWM_H_CH, i);
+        // ledcWrite(PWM_H_CH, i);
         unsigned long time = millis();
-        while (millis() - time < 5000)
+        while (millis() - time < 20000)
         {
             Serial.print(">PWM_Heater:");
             Serial.println(i);
@@ -772,7 +773,207 @@ void ads_pwm_test()
         }
     }
     ledcWrite(PWM_V_CH, 0);
-    ledcWrite(PWM_H_CH, 0);
+    // ledcWrite(PWM_H_CH, 0);
+}
+
+void ads_pwm_control()
+{
+    ads.begin(ADSi2c);
+    // ledcWrite(PWM_H_CH, 150);
+    for (int i = 0; i < 256; i = i + 50)
+    {
+        ledcWrite(PWM_V_CH, 255);
+        // ledcWrite(PWM_H_CH, i);
+        unsigned long time = millis();
+        while (millis() - time < 20000)
+        {
+            Serial.print(">PWM_Heater:");
+            Serial.println(i);
+            // Serial.print(",");
+            Serial.print(">time:");
+            Serial.println(millis() - time);
+            // Serial.print(",");
+            Serial.print(">Channel_0:");
+            Serial.println(ads.readADC_SingleEnded(0));
+            // Serial.print(",");
+            Serial.print(">Channel_1:");
+            Serial.println(ads.readADC_SingleEnded(1));
+            // Serial.print(",");
+            Serial.print(">Channel_2:");
+            Serial.println(ads.readADC_SingleEnded(2));
+            // Serial.print(",");
+            Serial.print(">Channel_3:");
+            Serial.println(ads.readADC_SingleEnded(3));
+        }
+    }
+    ledcWrite(PWM_V_CH, 0);
+    // ledcWrite(PWM_H_CH, 0);
+}
+
+void ads_pwm_test_rev()
+{
+    ads.begin(ADSi2c);
+    // ledcWrite(PWM_H_CH, 150);
+    for (int i = 255; i > 0; i = i - 50)
+    {
+        ledcWrite(PWM_V_CH, i);
+        // ledcWrite(PWM_H_CH, i);
+        unsigned long time = millis();
+        while (millis() - time < 20000)
+        {
+            Serial.print(">PWM_Heater:");
+            Serial.println(i);
+            // Serial.print(",");
+            Serial.print(">time:");
+            Serial.println(millis() - time);
+            // Serial.print(",");
+            Serial.print(">Channel_0:");
+            Serial.println(ads.readADC_SingleEnded(0));
+            // Serial.print(",");
+            Serial.print(">Channel_1:");
+            Serial.println(ads.readADC_SingleEnded(1));
+            // Serial.print(",");
+            Serial.print(">Channel_2:");
+            Serial.println(ads.readADC_SingleEnded(2));
+            // Serial.print(",");
+            Serial.print(">Channel_3:");
+            Serial.println(ads.readADC_SingleEnded(3));
+        }
+    }
+    ledcWrite(PWM_V_CH, 0);
+    // ledcWrite(PWM_H_CH, 0);
+}
+
+void onPump()
+{
+    std::vector<uint8_t> pump_on = switchCommand(1, pump_relay, 1);
+    Serial2.write(pump_on.data(), pump_on.size());
+}
+
+void offPump()
+{
+    std::vector<uint8_t> pump_on = switchCommand(1, pump_relay, 0);
+    Serial2.write(pump_on.data(), pump_on.size());
+}
+
+void relayRange(int x, int y, int state)
+{
+    for (int i = x; i <= y; i++)
+    {
+        std::vector<uint8_t> pump_on = switchCommand(1, i, state);
+        Serial2.write(pump_on.data(), pump_on.size());
+        delay(100);
+    }
+}
+
+void sector_1_on()
+{
+    relayRange(0, 7, 1);
+}
+
+void sector_1_off()
+{
+    relayRange(0, 7, 0);
+}
+
+void sector_2_on()
+{
+    relayRange(8, 15, 1);
+}
+
+void sector_2_off()
+{
+    relayRange(8, 15, 0);
+}
+
+void sector_3_on()
+{
+    relayRange(16, 23, 1);
+}
+
+void sector_3_off()
+{
+    relayRange(16, 23, 0);
+}
+
+void sector_4_on()
+{
+    relayRange(24, 31, 1);
+}
+
+void sector_4_off()
+{
+    relayRange(24, 31, 0);
+}
+
+void sector_5_on()
+{
+    relayRange(32, 39, 1);
+}
+
+void sector_5_off()
+{
+    relayRange(32, 39, 0);
+}
+
+void s1pOn()
+{
+    std::vector<uint8_t> pump_on = switchCommand(1, clean_1r, 1);
+    Serial2.write(pump_on.data(), pump_on.size());
+}
+
+void s1pOff()
+{
+    std::vector<uint8_t> pump_on = switchCommand(1, clean_1r, 0);
+    Serial2.write(pump_on.data(), pump_on.size());
+}
+
+void s2pOn()
+{
+    std::vector<uint8_t> pump_on = switchCommand(1, clean_2r, 1);
+    Serial2.write(pump_on.data(), pump_on.size());
+}
+
+void s2pOff()
+{
+    std::vector<uint8_t> pump_on = switchCommand(1, clean_2r, 0);
+    Serial2.write(pump_on.data(), pump_on.size());
+}
+
+void s3pOn()
+{
+    std::vector<uint8_t> pump_on = switchCommand(1, clean_3r, 1);
+    Serial2.write(pump_on.data(), pump_on.size());
+}
+
+void s3pOff()
+{
+    std::vector<uint8_t> pump_on = switchCommand(1, clean_3r, 0);
+    Serial2.write(pump_on.data(), pump_on.size());
+}
+
+void s4pOn()
+{
+    std::vector<uint8_t> pump_on = switchCommand(1, clean_4r, 1);
+    Serial2.write(pump_on.data(), pump_on.size());
+}
+
+void s4pOff()
+{
+    std::vector<uint8_t> pump_on = switchCommand(1, clean_4r, 0);
+    Serial2.write(pump_on.data(), pump_on.size());
+}
+
+void s5pOn()
+{
+    std::vector<uint8_t> pump_on = switchCommand(1, clean_5r, 1);
+    Serial2.write(pump_on.data(), pump_on.size());
+}
+
+void s5pOff()
+{
+    std::vector<uint8_t> pump_on = switchCommand(1, clean_5r, 0);
+    Serial2.write(pump_on.data(), pump_on.size());
 }
 
 void readConfigCMD()
@@ -791,4 +992,52 @@ void readConfigCMD()
     { checkState(); };
     commandMap["adsPWM"] = []()
     { ads_pwm_test(); };
+    commandMap["adsPWMrev"] = []()
+    { ads_pwm_test_rev(); };
+    commandMap["adsPWMcon"] = []()
+    { ads_pwm_control(); };
+    commandMap["pumpOn"] = []()
+    { onPump(); };
+    commandMap["pumpOff"] = []()
+    { offPump(); };
+    commandMap["sector1On"] = []()
+    { sector_1_on(); };
+    commandMap["sector1Off"] = []()
+    { sector_1_off(); };
+    commandMap["sector2On"] = []()
+    { sector_2_on(); };
+    commandMap["sector2Off"] = []()
+    { sector_2_off(); };
+    commandMap["sector3On"] = []()
+    { sector_3_on(); };
+    commandMap["sector3Off"] = []()
+    { sector_3_off(); };
+    commandMap["sector4On"] = []()
+    { sector_4_on(); };
+    commandMap["sector4Off"] = []()
+    { sector_4_off(); };
+    commandMap["sector5On"] = []()
+    { sector_5_on(); };
+    commandMap["sector5Off"] = []()
+    { sector_5_off(); };
+    commandMap["s1pOn"] = []()
+    { s1pOn(); };
+    commandMap["s1pOff"] = []()
+    { s1pOff(); };
+    commandMap["s2pOn"] = []()
+    { s2pOn(); };
+    commandMap["s2pOff"] = []()
+    { s2pOff(); };
+    commandMap["s3pOn"] = []()
+    { s3pOn(); };
+    commandMap["s3pOff"] = []()
+    { s3pOff(); };
+    commandMap["s4pOn"] = []()
+    { s4pOn(); };
+    commandMap["s4pOff"] = []()
+    { s4pOff(); };
+    commandMap["s5pOn"] = []()
+    { s5pOn(); };
+    commandMap["s5pOff"] = []()
+    { s5pOff(); };
 }
