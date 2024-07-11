@@ -188,6 +188,8 @@ int sensorCheck()
     }
     else if (ads.begin(ADSi2c))
     {
+        ads.setDataRate(RATE_ADS1115_860SPS);
+        ads.setGain(GAIN_ONE);
         Serial.println("ADS1115 sensor found!");
         ADSsampleTask();
         return 2;
@@ -637,6 +639,7 @@ void saveUOMData(std::unordered_map<int, std::vector<std::pair<unsigned long, ui
     UOM_sensorData.clear();
 }
 
+// buffer based saving method
 void saveADSData(std::unordered_map<int, std::vector<std::pair<unsigned long, std::array<int16_t, 4>>>> &ADS_sensorData, int setup_tracker, int repeat_tracker, int channel_tracker, String exp_name)
 {
     struct tm timeinfo;
@@ -659,124 +662,58 @@ void saveADSData(std::unordered_map<int, std::vector<std::pair<unsigned long, st
         return;
     }
 
-    // Check if setup_tracker has changed and update the directory if necessary
     if (setup_tracker != last_setup_tracker)
     {
         currentPath = createOrIncrementFolder(expDir);
-        last_setup_tracker = setup_tracker; // Update the last known value of setup_tracker
+        last_setup_tracker = setup_tracker;
     }
 
     String uniqueFilename = currentPath + "/" + String(currentTime) + "s" + String(setup_tracker) + "c" + String(channel_tracker) + "r" + String(repeat_tracker) + ".csv";
     const char *filename = uniqueFilename.c_str();
 
     File myFile = SD.open(filename, FILE_WRITE);
-    if (myFile)
-    {
-        myFile.println("Setting,Timestamp,Channel_0,Channel_1,Channel_2,Channel_3");
-        for (auto &entry : ADS_sensorData)
-        {
-            int setting = entry.first;
-            for (auto &data : entry.second)
-            {
-                unsigned long timestamp = data.first; // Extract timestamp
-                auto &dataArray = data.second;        // Extract gas resistance
-
-                myFile.print(setting);
-                myFile.print(",");
-                myFile.print(timestamp);
-                myFile.print(",");
-                for (uint32_t value : dataArray)
-                {
-                    myFile.print(value);
-                    myFile.print(",");
-                }
-                myFile.println();
-            }
-        }
-        Serial.println("Data saved to file: " + String(filename));
-        myFile.close();
-    }
-    else
+    if (!myFile)
     {
         Serial.println("Error opening file for writing");
+        return;
     }
-    ADS_sensorData.clear();
+
+    // Start with the CSV header
+    String buffer = "Setting,Timestamp,Channel_0,Channel_1,Channel_2,Channel_3\n";
+
+    // Accumulate data into the buffer
+    for (auto &entry : ADS_sensorData)
+    {
+        int setting = entry.first;
+        for (auto &data : entry.second)
+        {
+            buffer += String(setting) + ",";
+            buffer += String(data.first) + ","; // Timestamp
+            for (auto value : data.second)
+            {
+                buffer += String(value) + ",";
+            }
+            buffer += "\n";
+
+            // Check if buffer needs to be flushed
+            if (buffer.length() >= 1024) // Choose a suitable size for flushing
+            {
+                myFile.print(buffer);
+                buffer = ""; // Clear the buffer
+            }
+        }
+    }
+
+    // Flush remaining data in the buffer
+    if (buffer.length() > 0)
+    {
+        myFile.print(buffer);
+    }
+
+    Serial.println("Data saved to file: " + uniqueFilename);
+    myFile.close();
+    ADS_sensorData.clear(); // Ensure to clear the correct data structure
 }
-// buffer base saving method
-// void saveADSData(std::unordered_map<int, std::vector<std::pair<unsigned long, std::array<int16_t, 4>>>> &ADS_sensorData, int setup_tracker, int repeat_tracker, int channel_tracker, String exp_name)
-// {
-//     struct tm timeinfo;
-//     if (!getLocalTime(&timeinfo))
-//     {
-//         Serial.println("Failed to obtain time");
-//         return;
-//     }
-//     char today[11];
-//     strftime(today, sizeof(today), "%Y_%m_%d", &timeinfo);
-//     char currentTime[9];
-//     strftime(currentTime, sizeof(currentTime), "%H_%M_%S", &timeinfo);
-
-//     String baseDir = "/" + String(today);
-//     String expDir = baseDir + "/" + exp_name;
-
-//     if (!ensureDirectoryExists(baseDir) || !ensureDirectoryExists(expDir))
-//     {
-//         Serial.println("Failed to ensure directories exist.");
-//         return;
-//     }
-
-//     if (setup_tracker != last_setup_tracker)
-//     {
-//         currentPath = createOrIncrementFolder(expDir);
-//         last_setup_tracker = setup_tracker;
-//     }
-
-//     String uniqueFilename = currentPath + "/" + String(currentTime) + "s" + String(setup_tracker) + "c" + String(channel_tracker) + "r" + String(repeat_tracker) + ".csv";
-//     const char *filename = uniqueFilename.c_str();
-
-//     File myFile = SD.open(filename, FILE_WRITE);
-//     if (!myFile)
-//     {
-//         Serial.println("Error opening file for writing");
-//         return;
-//     }
-
-//     // Start with the CSV header
-//     String buffer = "Setting,Timestamp,Channel_0,Channel_1,Channel_2,Channel_3\n";
-
-//     // Accumulate data into the buffer
-//     for (auto &entry : ADS_sensorData)
-//     {
-//         int setting = entry.first;
-//         for (auto &data : entry.second)
-//         {
-//             buffer += String(setting) + ",";
-//             buffer += String(data.first) + ","; // Timestamp
-//             for (auto value : data.second)
-//             {
-//                 buffer += String(value) + ",";
-//             }
-//             buffer += "\n";
-
-//             // Check if buffer needs to be flushed
-//             if (buffer.length() >= 1024) // Choose a suitable size for flushing
-//             {
-//                 myFile.print(buffer);
-//                 buffer = ""; // Clear the buffer
-//             }
-//         }
-//     }
-
-//     // Flush remaining data in the buffer
-//     if (buffer.length() > 0)
-//     {
-//         myFile.print(buffer);
-//     }
-
-//     Serial.println("Data saved to file: " + uniqueFilename);
-//     myFile.close();
-//     ADS_sensorData.clear(); // Ensure to clear the correct data structure
-// }
 
 int UOM_sensorBME(std::unordered_map<int, std::vector<std::pair<unsigned long, uint32_t>>> &UOM_sensorData, std::vector<int> heaterSettings, int heatingTime)
 {
@@ -855,20 +792,51 @@ int UOM_sensorADS(std::unordered_map<int, std::vector<std::pair<unsigned long, s
     {
         // Serial.print("+");
         ledcWrite(PWM_Heater, setting);
-        // delay(heatingTime);
-        // unsigned long timestamp = millis() - startTime;
+
+        // // Non-blocking delay for heating time
+        // unsigned long startHeating = millis();
+        // while (millis() - startHeating < heatingTime)
+        // {
+        //     vTaskDelay(pdMS_TO_TICKS(1));
+        // }
+
         unsigned long timestamp = millis(); // relative timestamp has a resetting bug that needs to be fixed
         std::array<int16_t, 4> ADSreadings = {ads.readADC_SingleEnded(0), ads.readADC_SingleEnded(1), ads.readADC_SingleEnded(2), ads.readADC_SingleEnded(3)};
-        ADS_sensorData[setting].push_back(std::make_pair(timestamp, ADSreadings));
+        // ADS_sensorData[setting].push_back(std::make_pair(timestamp, ADSreadings));
+        ADS_sensorData[setting].emplace_back(timestamp, ADSreadings);
     }
 
     return 0;
+}
+
+void UOM_ADS_continuous(std::unordered_map<int, std::vector<std::pair<unsigned long, int16_t>>> &ADS_continuous, std::vector<int> heaterSettings, int heatingTime)
+{
+    // set continuous mode
+    for (int setting : heaterSettings)
+    {
+
+        ledcWrite(PWM_Heater, setting);
+
+        // // Non-blocking delay for heating time
+        // unsigned long startHeating = millis();
+        // while (millis() - startHeating < heatingTime)
+        // {
+        //     vTaskDelay(pdMS_TO_TICKS(1));
+        // }
+
+        unsigned long timestamp = millis(); // relative timestamp has a resetting bug that needs to be fixed
+        int16_t results = ads.getLastConversionResults();
+        ADS_continuous[setting].emplace_back(timestamp, results);
+    }
 }
 
 void sampleADS(void *pvParameters)
 {
     for (;;)
     {
+        // continuous experiment
+        std::unordered_map<int, std::vector<std::pair<unsigned long, int16_t>>> ADS_continuous;
+
         // Wait for a notification to start data acquisition
         ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
 
@@ -877,6 +845,9 @@ void sampleADS(void *pvParameters)
         {
             UOM_sensorADS(ADS_sensorData, heaterSettings, heatingTime);
             Serial.print("-");
+
+            ads.startADCReading(ADS1X15_REG_CONFIG_MUX_SINGLE_0, true); // Continuous mode
+            UOM_ADS_continuous(ADS_continuous, heaterSettings, heatingTime);
 
             // Check if there's a notification to save data
             if (ulTaskNotifyTake(pdTRUE, 0)) // Check without waiting
@@ -888,33 +859,84 @@ void sampleADS(void *pvParameters)
         // Save the acquired data
         saveADSData(ADS_sensorData, setup_tracker, repeat_tracker, channel_tracker, exp_name);
 
+        // continuous exp
+        saveADScontinuous(ADS_continuous, setup_tracker, repeat_tracker, channel_tracker, exp_name);
+
         // Notify the exp_loop task that data saving is complete
         xTaskNotifyGive(expLoopTaskHandle);
     }
 }
 
-// void sampleADS(void *pvParameters)
-// {
-//     for (;;)
-//     {
-//         // uomTest();
-//         int currentState = getExpState();
-//         // Serial.print("-");
-//         if (currentState == EXP_DAQ) // EXP_DAQ)
-//         {
+void saveADScontinuous(std::unordered_map<int, std::vector<std::pair<unsigned long, int16_t>>> &ADS_continuous, int setup_tracker, int repeat_tracker, int channel_tracker, String exp_name)
+{
+    struct tm timeinfo;
+    if (!getLocalTime(&timeinfo))
+    {
+        Serial.println("Failed to obtain time");
+        return;
+    }
+    char today[11];
+    strftime(today, sizeof(today), "%Y_%m_%d", &timeinfo);
+    char currentTime[9];
+    strftime(currentTime, sizeof(currentTime), "%H_%M_%S", &timeinfo);
 
-//             UOM_sensorADS(ADS_sensorData, heaterSettings, heatingTime);
-//         }
-//         else if (currentState == EXP_SAVE)
-//         {
-//             // Serial.print("+");
-//             // displayMap(UOM_sensorData);
-//             saveADSData(ADS_sensorData, setup_tracker, repeat_tracker, channel_tracker, exp_name);
-//             mutexEdit(EXP_READY);
-//         }
-//         // vTaskDelay(pdMS_TO_TICKS(1));
-//     }
-// }
+    String baseDir = "/" + String(today);
+    String expDir = baseDir + "/" + exp_name;
+
+    if (!ensureDirectoryExists(baseDir) || !ensureDirectoryExists(expDir))
+    {
+        Serial.println("Failed to ensure directories exist.");
+        return;
+    }
+
+    if (setup_tracker != last_setup_tracker)
+    {
+        currentPath = createOrIncrementFolder(expDir);
+        last_setup_tracker = setup_tracker;
+    }
+
+    String uniqueFilename = currentPath + "/" + String(currentTime) + "s" + String(setup_tracker) + "c" + String(channel_tracker) + "r" + String(repeat_tracker) + ".csv";
+    const char *filename = uniqueFilename.c_str();
+
+    File myFile = SD.open(filename, FILE_WRITE);
+    if (!myFile)
+    {
+        Serial.println("Error opening file for writing");
+        return;
+    }
+
+    // Start with the CSV header
+    String buffer = "Setting,Timestamp,Value\n";
+
+    // Accumulate data into the buffer
+    for (auto &entry : ADS_continuous)
+    {
+        int setting = entry.first;
+        for (auto &data : entry.second)
+        {
+            buffer += String(setting) + ",";
+            buffer += String(data.first) + ",";   // Timestamp
+            buffer += String(data.second) + "\n"; // Single value for this timestamp
+
+            // Check if buffer needs to be flushed
+            if (buffer.length() >= 1024)
+            { // Choose a suitable size for flushing
+                myFile.print(buffer);
+                buffer = ""; // Clear the buffer
+            }
+        }
+    }
+
+    // Flush remaining data in the buffer
+    if (buffer.length() > 0)
+    {
+        myFile.print(buffer);
+    }
+
+    Serial.println("Data saved to file: " + uniqueFilename);
+    myFile.close();
+    ADS_continuous.clear(); // Clear the data after saving
+}
 
 void ADSsampleTask()
 {

@@ -28,6 +28,7 @@ void setup()
   Serial.begin(115200);
   Serial2.begin(38400, SERIAL_8N1, U2_RX, U2_TX);
   M5.begin(1, 1, 1, 1);
+  Wire.setClock(400000); // Increase I2C clock speed to 400 kHz
   //  the setups are not not needed now
   pinSetup(); // something in pin setup is causing sd card to not initialize properly
   // delay(100);
