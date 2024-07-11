@@ -14,42 +14,10 @@ void BMEsampleTask();
 void ADSsampleTask();
 void expMutexSetup();
 int sensorCheck();
-// class SensorData
-// {
-// private:
-//     std::string infoString;
-//     std::vector<float> conVec;
-//     std::unordered_map<uint32_t, std::vector<uint32_t>> sensorData;
-
-// public:
-//     // Constructor
-//     SensorData(const std::string &info, const std::vector<float> &con, const std::unordered_map<uint32_t, std::vector<uint32_t>> &data)
-//         : infoString(info), conVec(con), sensorData(data) {}
-
-//     // Info string accessor
-//     const std::string &getInfoString() const
-//     {
-//         return infoString;
-//     }
-
-//     // Concentration vector accessor
-//     const std::vector<float> &getConVec() const
-//     {
-//         return conVec;
-//     }
-
-//     // Generic data accessor
-//     const std::vector<uint32_t> &getDataVec(uint32_t sensorId) const
-//     {
-//         auto it = sensorData.find(sensorId);
-//         if (it != sensorData.end())
-//         {
-//             return it->second;
-//         }
-//         // Handle the error or return a static empty vector to avoid exceptions
-//         static std::vector<uint32_t> empty;
-//         return empty;
-//     }
-// };
+void relayRange(int start, int end, int state);
+void relayCMD();
+void purgeAll();
+void purgeOff();
+int purgeChannel(int channel);
 
 #endif // EXP_SETUP_H

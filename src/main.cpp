@@ -16,6 +16,7 @@
 #include <Firebase_ESP_Client.h>
 #include <M5Stack.h>
 #include <exp_setup.h>
+#include <zsrelay.h>
 
 // #include <SensorData.h>
 // #include <SensorDataFactory.h>
@@ -33,8 +34,9 @@ void setup()
 
   pwmSetup(); // something in pwm setup is causing sd card to not initialize properly
   // delay(100);
-  ledcWrite(PWM_H_CH, 150);
+  // ledcWrite(PWM_H_CH, 150);
   expMutexSetup();
+  relay_off();
 
   cmdSetup();
   if (!SD.exists("/wifiCredentials.json"))

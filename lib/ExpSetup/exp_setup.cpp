@@ -32,11 +32,11 @@ unsigned long startTime = 0;
 String exp_name = "";
 String currentPath = "";
 
-TaskHandle_t bmeTaskHandle, adsTaskHandle;
+TaskHandle_t bmeTaskHandle, adsTaskHandle, expLoopTaskHandle;
 Adafruit_BME680 bme; // I2C
 Adafruit_ADS1115 ads;
 
-SemaphoreHandle_t expStateMutex; // Declare a mutex
+SemaphoreHandle_t expStateMutex, eluteStateMutex; // Declare a mutex
 enum ExpState
 {
     EXP_IDLE,
@@ -44,7 +44,6 @@ enum ExpState
     EXP_SAVE,
     EXP_READY,
     EXP_DAQ,
-
 };
 
 ExpState expState = EXP_IDLE;
@@ -195,103 +194,126 @@ int sensorCheck()
     }
 }
 
-void exp_loop(FirebaseJson config, int setup_count, int exp_time = 10000)
+int serial_delay = 15;
+
+void purgeAll()
+{
+    std::vector<uint8_t> pump_on = switchCommand(1, clean_1r, 1);
+    Serial2.write(pump_on.data(), pump_on.size());
+    delay(serial_delay);
+    pump_on = switchCommand(1, clean_2r, 1);
+    Serial2.write(pump_on.data(), pump_on.size());
+    delay(serial_delay);
+    pump_on = switchCommand(1, clean_3r, 1);
+    Serial2.write(pump_on.data(), pump_on.size());
+    delay(serial_delay);
+    pump_on = switchCommand(1, clean_4r, 1);
+    Serial2.write(pump_on.data(), pump_on.size());
+    delay(serial_delay);
+    pump_on = switchCommand(1, clean_5r, 1);
+    Serial2.write(pump_on.data(), pump_on.size());
+    delay(serial_delay);
+}
+
+void purgeOff()
+{
+    std::vector<uint8_t> pump_on = switchCommand(1, clean_1r, 0);
+    Serial2.write(pump_on.data(), pump_on.size());
+    delay(serial_delay);
+    pump_on = switchCommand(1, clean_2r, 0);
+    Serial2.write(pump_on.data(), pump_on.size());
+    delay(serial_delay);
+    pump_on = switchCommand(1, clean_3r, 0);
+    Serial2.write(pump_on.data(), pump_on.size());
+    delay(serial_delay);
+    pump_on = switchCommand(1, clean_4r, 0);
+    Serial2.write(pump_on.data(), pump_on.size());
+    delay(serial_delay);
+    pump_on = switchCommand(1, clean_5r, 0);
+    Serial2.write(pump_on.data(), pump_on.size());
+    delay(serial_delay);
+}
+
+void exp_loop(FirebaseJson config, int setup_count)
 {
     int sensorType = sensorCheck();
-    mutexEdit(EXP_WARMING_UP);
-    Serial.println("State = EXP_WARMING_UP" + String(expState));
+    purgeAll();
+
     std::vector<uint8_t> pump_on = switchCommand(1, pump_relay, 1);
     Serial2.write(pump_on.data(), pump_on.size());
-    ledcWrite(PWM_Vin, 255);
-    // Serial.println("Pump command: ");
-    // for (uint8_t i : pump_on)
-    // {
-    //     Serial.print(i);
-    // }
+    ledcWrite(PWM_Vin, 255); // sensor voltage pwm
 
     for (int i = 1; i <= setup_count; i++)
     {
         setup_tracker = i;
         exp_name = getExpName(config, i, "/exp_name");
         heaterSettings = getArr(config, i, "/heater_settings");
-        Serial.println("Heater settings: ");
-        for (int i : heaterSettings)
-        {
-            Serial.print(i);
-            Serial.print(",");
-        }
         heatingTime = getInt(config, i, "/heating_time(ms)");
-        Serial.println("Heating time: " + String(heatingTime));
-        int duration = getInt(config, i, "/duration(s)");
-        duration = duration * 1000;
+        int exp_time = getInt(config, i, "/exp_time(ms)");
+        int duration = getInt(config, i, "/duration(s)") * 1000;
         int repeat = getInt(config, i, "/repeat");
         std::vector<int> channels = getArr(config, i, "/channel");
-        // only continue with the experiment if all three parameters are not 0
+
         if (duration == 0 || repeat == 0 || channels.size() == 0)
         {
-            // if invalid setup found exit the function
             Serial.println("Invalid setup: " + String(i));
             continue;
         }
-        mutexEdit(EXP_READY); // Set experiment state to READY
-        Serial.println("State = EXP_READY" + String(expState));
 
-        // for each channel in the array, run the experiment
-        // Serial.println("Running experiment for setup: " + String(i));
         for (int j = 0; j < repeat; j++)
         {
             repeat_tracker = j;
             Serial.println("Running experiment for setup: " + String(i) + " repeat: " + String(j));
+
             for (int cur_channel : channels)
             {
+                purgeOff();
                 startTime = millis();
                 channel_tracker = cur_channel;
-                // Only proceed if the state is EXP_READY
-                // while (expState != EXP_READY)
-                // {
-                //     // Serial.print("/");
-                //     vTaskDelay(pdMS_TO_TICKS(1000));
-                // }
-                mutexEdit(EXP_DAQ);
-                Serial.println("State = EXP_DAQ" + String(expState));
-                // RTOS logic that is driven by events
-                // use rtos to collect data and flag to signal start and stop for data saving
+
+                // Notify the ADS sampling task to start data acquisition
+                xTaskNotifyGive(adsTaskHandle);
+
                 Serial.println("Running experiment for channel: " + String(cur_channel));
                 std::vector<uint8_t> on_command = switchCommand(1, cur_channel, 1);
-
-                // Serial.println("On command: ");
-                // for (uint8_t i : on_command)
-                // {
-                //     Serial.print(i);
-                // }
-                // Serial.println("");
-
-                Serial.println("Turning on channel: " + String(cur_channel));
                 Serial2.write(on_command.data(), on_command.size());
-                delay(duration);
-                // flush serial
+
+                // Non-blocking delay for duration
+                uint32_t startDuration = millis();
+                while (millis() - startDuration < duration)
+                {
+                    vTaskDelay(pdMS_TO_TICKS(10));
+                }
 
                 std::vector<uint8_t> off_command = switchCommand(1, cur_channel, 0);
-                // Serial.println("Off command: ");
-                // for (uint8_t i : off_command)
-                // {
-                //     Serial.print(i);
-                // }
-                // Serial.println("");
-                Serial.println("Turning off channel: " + String(cur_channel));
-                Serial2.write(off_command.data(), off_command.size());
-                delay(exp_time);
-                mutexEdit(EXP_SAVE);
-                Serial.println("State = EXP_SAVE" + String(expState));
-                while (expState != EXP_READY)
+                std::vector<uint8_t> selected_purge_cmd = switchCommand(1, purgeChannel(cur_channel), 1);
+                Serial2.write(selected_purge_cmd.data(), selected_purge_cmd.size());
+
+                // Non-blocking delay for purge time
+                uint32_t startPurge = millis();
+                while (millis() - startPurge < serial_delay)
                 {
-                    // Serial.print("/");
-                    vTaskDelay(pdMS_TO_TICKS(1000));
+                    vTaskDelay(pdMS_TO_TICKS(10));
                 }
-                // wait for data to be saved and expState to be set to EXP_READY
+
+                Serial2.write(off_command.data(), on_command.size());
+
+                // Non-blocking delay for elution time
+                uint32_t startElution = millis();
+                while (millis() - startElution < exp_time)
+                {
+                    vTaskDelay(pdMS_TO_TICKS(10));
+                }
+
+                // Notify the ADS sampling task to save data
+                xTaskNotify(adsTaskHandle, 0, eIncrement);
+
+                // Wait for the ADS sampling task to signal completion
+                ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
             }
         }
     }
+
     if (sensorType == 1)
     {
         vTaskDelete(bmeTaskHandle);
@@ -300,18 +322,112 @@ void exp_loop(FirebaseJson config, int setup_count, int exp_time = 10000)
     {
         vTaskDelete(adsTaskHandle);
     }
-    std::vector<uint8_t> pump_off = switchCommand(1, pump_relay, 0);
-    Serial2.write(pump_off.data(), pump_off.size());
-    // Serial.println("Pump off command: ");
-    // for (uint8_t i : pump_off)
-    // {
-    //     Serial.print(i);
-    // }
+    relay_off();
+
     Serial.println("END of LOOP");
     startTime = 0;
     last_setup_tracker = -1;
-    mutexEdit(EXP_IDLE);
 }
+
+// void exp_loop(FirebaseJson config, int setup_count)
+// {
+//     int sensorType = sensorCheck();
+//     // mutexEdit(EXP_WARMING_UP);
+//     // Serial.println("State = EXP_WARMING_UP" + String(expState));
+//     purgeAll();
+
+//     std::vector<uint8_t> pump_on = switchCommand(1, pump_relay, 1);
+//     Serial2.write(pump_on.data(), pump_on.size());
+//     ledcWrite(PWM_Vin, 255); // sensor voltage pwm
+
+//     for (int i = 1; i <= setup_count; i++)
+//     {
+//         setup_tracker = i;
+//         exp_name = getExpName(config, i, "/exp_name");
+//         heaterSettings = getArr(config, i, "/heater_settings");
+//         Serial.println("Heater settings: ");
+//         for (int i : heaterSettings)
+//         {
+//             Serial.print(i);
+//             Serial.print(",");
+//         }
+//         heatingTime = getInt(config, i, "/heating_time(ms)");
+//         int exp_time = getInt(config, i, "/exp_time(ms)");
+//         Serial.println("Heating time: " + String(heatingTime));
+//         int duration = getInt(config, i, "/duration(s)");
+//         duration = duration * 1000;
+//         int repeat = getInt(config, i, "/repeat");
+//         std::vector<int> channels = getArr(config, i, "/channel");
+//         // only continue with the experiment if all three parameters are not 0
+//         if (duration == 0 || repeat == 0 || channels.size() == 0)
+//         {
+//             // if invalid setup found exit the function
+//             Serial.println("Invalid setup: " + String(i));
+//             continue;
+//         }
+//         // delay(10000);         // warm up time
+//         mutexEdit(EXP_READY); // Set experiment state to READY
+//         Serial.println("State = EXP_READY" + String(expState));
+
+//         // for each channel in the array, run the experiment
+//         // Serial.println("Running experiment for setup: " + String(i));
+//         for (int j = 0; j < repeat; j++)
+//         {
+//             repeat_tracker = j;
+//             Serial.println("Running experiment for setup: " + String(i) + " repeat: " + String(j));
+//             for (int cur_channel : channels)
+//             {
+//                 purgeOff();
+//                 startTime = millis();
+//                 channel_tracker = cur_channel;
+//                 mutexEdit(EXP_DAQ);
+//                 Serial.println("State = EXP_DAQ" + String(expState));
+//                 // RTOS logic that is driven by events
+//                 // use rtos to collect data and flag to signal start and stop for data saving
+
+//                 Serial.println("Running experiment for channel: " + String(cur_channel));
+//                 std::vector<uint8_t> on_command = switchCommand(1, cur_channel, 1);
+
+//                 Serial.println("Turning on channel: " + String(cur_channel));
+//                 Serial2.write(on_command.data(), on_command.size());
+//                 delay(duration);
+
+//                 std::vector<uint8_t> off_command = switchCommand(1, cur_channel, 0);
+//                 Serial.println("Turning off channel: " + String(cur_channel));
+//                 // select purge channel based on the current channel and send the command
+
+//                 std::vector<uint8_t> selected_purge_cmd = switchCommand(1, purgeChannel(cur_channel), 1);
+//                 Serial2.write(selected_purge_cmd.data(), selected_purge_cmd.size());
+//                 delay(serial_delay); // purge time
+
+//                 Serial2.write(off_command.data(), off_command.size());
+//                 delay(exp_time); // elution
+//                 mutexEdit(EXP_SAVE);
+//                 Serial.println("State = EXP_SAVE" + String(expState));
+//                 while (expState != EXP_READY)
+//                 {
+//                     // Serial.print("/");
+//                     vTaskDelay(pdMS_TO_TICKS(1000));
+//                 }
+//                 // wait for data to be saved and expState to be set to EXP_READY
+//             }
+//         }
+//     }
+//     if (sensorType == 1)
+//     {
+//         vTaskDelete(bmeTaskHandle);
+//     }
+//     else if (sensorType == 2)
+//     {
+//         vTaskDelete(adsTaskHandle);
+//     }
+//     relay_off();
+
+//     Serial.println("END of LOOP");
+//     startTime = 0;
+//     last_setup_tracker = -1;
+//     mutexEdit(EXP_IDLE);
+// }
 
 void exp_build()
 {
@@ -328,6 +444,7 @@ void exp_build()
 
 void exp_start(void *pvParameters)
 {
+    expLoopTaskHandle = xTaskGetCurrentTaskHandle();
     exp_build();
     vTaskDelete(NULL);
 }
@@ -335,12 +452,12 @@ void exp_start(void *pvParameters)
 void expTask()
 {
     xTaskCreate(
-        exp_start,   /* Task function. */
-        "exp_start", /* String with name of task. */
-        20480,       /* Stack size in bytes. */
-        NULL,        /* Parameter passed as input of the task */
-        1,           /* Priority of the task. */
-        NULL);       /* Task handle. */
+        exp_start,           /* Task function. */
+        "exp_start",         /* String with name of task. */
+        10240,               /* Stack size in bytes. */
+        NULL,                /* Parameter passed as input of the task */
+        1,                   /* Priority of the task. */
+        &expLoopTaskHandle); /* Task handle. */
 }
 
 void M5_SD_JSON(const char *filename, String &configData)
@@ -583,8 +700,83 @@ void saveADSData(std::unordered_map<int, std::vector<std::pair<unsigned long, st
     {
         Serial.println("Error opening file for writing");
     }
-    UOM_sensorData.clear();
+    ADS_sensorData.clear();
 }
+// buffer base saving method
+// void saveADSData(std::unordered_map<int, std::vector<std::pair<unsigned long, std::array<int16_t, 4>>>> &ADS_sensorData, int setup_tracker, int repeat_tracker, int channel_tracker, String exp_name)
+// {
+//     struct tm timeinfo;
+//     if (!getLocalTime(&timeinfo))
+//     {
+//         Serial.println("Failed to obtain time");
+//         return;
+//     }
+//     char today[11];
+//     strftime(today, sizeof(today), "%Y_%m_%d", &timeinfo);
+//     char currentTime[9];
+//     strftime(currentTime, sizeof(currentTime), "%H_%M_%S", &timeinfo);
+
+//     String baseDir = "/" + String(today);
+//     String expDir = baseDir + "/" + exp_name;
+
+//     if (!ensureDirectoryExists(baseDir) || !ensureDirectoryExists(expDir))
+//     {
+//         Serial.println("Failed to ensure directories exist.");
+//         return;
+//     }
+
+//     if (setup_tracker != last_setup_tracker)
+//     {
+//         currentPath = createOrIncrementFolder(expDir);
+//         last_setup_tracker = setup_tracker;
+//     }
+
+//     String uniqueFilename = currentPath + "/" + String(currentTime) + "s" + String(setup_tracker) + "c" + String(channel_tracker) + "r" + String(repeat_tracker) + ".csv";
+//     const char *filename = uniqueFilename.c_str();
+
+//     File myFile = SD.open(filename, FILE_WRITE);
+//     if (!myFile)
+//     {
+//         Serial.println("Error opening file for writing");
+//         return;
+//     }
+
+//     // Start with the CSV header
+//     String buffer = "Setting,Timestamp,Channel_0,Channel_1,Channel_2,Channel_3\n";
+
+//     // Accumulate data into the buffer
+//     for (auto &entry : ADS_sensorData)
+//     {
+//         int setting = entry.first;
+//         for (auto &data : entry.second)
+//         {
+//             buffer += String(setting) + ",";
+//             buffer += String(data.first) + ","; // Timestamp
+//             for (auto value : data.second)
+//             {
+//                 buffer += String(value) + ",";
+//             }
+//             buffer += "\n";
+
+//             // Check if buffer needs to be flushed
+//             if (buffer.length() >= 1024) // Choose a suitable size for flushing
+//             {
+//                 myFile.print(buffer);
+//                 buffer = ""; // Clear the buffer
+//             }
+//         }
+//     }
+
+//     // Flush remaining data in the buffer
+//     if (buffer.length() > 0)
+//     {
+//         myFile.print(buffer);
+//     }
+
+//     Serial.println("Data saved to file: " + uniqueFilename);
+//     myFile.close();
+//     ADS_sensorData.clear(); // Ensure to clear the correct data structure
+// }
 
 int UOM_sensorBME(std::unordered_map<int, std::vector<std::pair<unsigned long, uint32_t>>> &UOM_sensorData, std::vector<int> heaterSettings, int heatingTime)
 {
@@ -653,15 +845,15 @@ void ads_heaterSettings(std::vector<int> settings)
 
 int UOM_sensorADS(std::unordered_map<int, std::vector<std::pair<unsigned long, std::array<int16_t, 4>>>> &ADS_sensorData, std::vector<int> heaterSettings, int heatingTime)
 {
-    if (!ads.begin(ADSi2c))
-    {
-        Serial.println("Could not find a valid ADS1115, check wiring!");
-        while (1)
-            ;
-    }
+    // if (!ads.begin(ADSi2c))
+    // {
+    //     Serial.println("Could not find a valid ADS1115, check wiring!");
+    //     while (1)
+    //         ;
+    // }
     for (int setting : heaterSettings)
     {
-        Serial.print("+");
+        // Serial.print("+");
         ledcWrite(PWM_Heater, setting);
         // delay(heatingTime);
         // unsigned long timestamp = millis() - startTime;
@@ -677,31 +869,59 @@ void sampleADS(void *pvParameters)
 {
     for (;;)
     {
-        // uomTest();
-        int currentState = getExpState();
-        // Serial.print("-");
-        if (currentState == EXP_DAQ) // EXP_DAQ)
-        {
+        // Wait for a notification to start data acquisition
+        ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
 
-            UOM_sensorADS(ADS_sensorData, heaterSettings, heatingTime);
-        }
-        else if (currentState == EXP_SAVE)
+        // Perform data acquisition continuously until notified to save data
+        while (true)
         {
-            // Serial.print("+");
-            // displayMap(UOM_sensorData);
-            saveADSData(ADS_sensorData, setup_tracker, repeat_tracker, channel_tracker, exp_name);
-            mutexEdit(EXP_READY);
+            UOM_sensorADS(ADS_sensorData, heaterSettings, heatingTime);
+            Serial.print("-");
+
+            // Check if there's a notification to save data
+            if (ulTaskNotifyTake(pdTRUE, 0)) // Check without waiting
+            {
+                break;
+            }
         }
-        // vTaskDelay(pdMS_TO_TICKS(1));
+
+        // Save the acquired data
+        saveADSData(ADS_sensorData, setup_tracker, repeat_tracker, channel_tracker, exp_name);
+
+        // Notify the exp_loop task that data saving is complete
+        xTaskNotifyGive(expLoopTaskHandle);
     }
 }
+
+// void sampleADS(void *pvParameters)
+// {
+//     for (;;)
+//     {
+//         // uomTest();
+//         int currentState = getExpState();
+//         // Serial.print("-");
+//         if (currentState == EXP_DAQ) // EXP_DAQ)
+//         {
+
+//             UOM_sensorADS(ADS_sensorData, heaterSettings, heatingTime);
+//         }
+//         else if (currentState == EXP_SAVE)
+//         {
+//             // Serial.print("+");
+//             // displayMap(UOM_sensorData);
+//             saveADSData(ADS_sensorData, setup_tracker, repeat_tracker, channel_tracker, exp_name);
+//             mutexEdit(EXP_READY);
+//         }
+//         // vTaskDelay(pdMS_TO_TICKS(1));
+//     }
+// }
 
 void ADSsampleTask()
 {
     xTaskCreate(
         sampleADS,       /* Task function. */
         "ads_start",     /* String with name of task. */
-        10240,           /* Stack size in bytes. */
+        20480,           /* Stack size in bytes. */
         NULL,            /* Parameter passed as input of the task */
         1,               /* Priority of the task. */
         &adsTaskHandle); /* Task handle. */
@@ -742,108 +962,6 @@ void checkState()
     Serial.println("Current state: " + String(expState));
 }
 
-void ads_pwm_test()
-{
-    ads.begin(ADSi2c);
-    // ledcWrite(PWM_H_CH, 150);
-    for (int i = 0; i < 256; i = i + 50)
-    {
-        ledcWrite(PWM_V_CH, i);
-        // ledcWrite(PWM_H_CH, i);
-        unsigned long time = millis();
-        while (millis() - time < 20000)
-        {
-            Serial.print(">PWM_Heater:");
-            Serial.println(i);
-            // Serial.print(",");
-            Serial.print(">time:");
-            Serial.println(millis() - time);
-            // Serial.print(",");
-            Serial.print(">Channel_0:");
-            Serial.println(ads.readADC_SingleEnded(0));
-            // Serial.print(",");
-            Serial.print(">Channel_1:");
-            Serial.println(ads.readADC_SingleEnded(1));
-            // Serial.print(",");
-            Serial.print(">Channel_2:");
-            Serial.println(ads.readADC_SingleEnded(2));
-            // Serial.print(",");
-            Serial.print(">Channel_3:");
-            Serial.println(ads.readADC_SingleEnded(3));
-        }
-    }
-    ledcWrite(PWM_V_CH, 0);
-    // ledcWrite(PWM_H_CH, 0);
-}
-
-void ads_pwm_control()
-{
-    ads.begin(ADSi2c);
-    // ledcWrite(PWM_H_CH, 150);
-    for (int i = 0; i < 256; i = i + 50)
-    {
-        ledcWrite(PWM_V_CH, 255);
-        // ledcWrite(PWM_H_CH, i);
-        unsigned long time = millis();
-        while (millis() - time < 20000)
-        {
-            Serial.print(">PWM_Heater:");
-            Serial.println(i);
-            // Serial.print(",");
-            Serial.print(">time:");
-            Serial.println(millis() - time);
-            // Serial.print(",");
-            Serial.print(">Channel_0:");
-            Serial.println(ads.readADC_SingleEnded(0));
-            // Serial.print(",");
-            Serial.print(">Channel_1:");
-            Serial.println(ads.readADC_SingleEnded(1));
-            // Serial.print(",");
-            Serial.print(">Channel_2:");
-            Serial.println(ads.readADC_SingleEnded(2));
-            // Serial.print(",");
-            Serial.print(">Channel_3:");
-            Serial.println(ads.readADC_SingleEnded(3));
-        }
-    }
-    ledcWrite(PWM_V_CH, 0);
-    // ledcWrite(PWM_H_CH, 0);
-}
-
-void ads_pwm_test_rev()
-{
-    ads.begin(ADSi2c);
-    // ledcWrite(PWM_H_CH, 150);
-    for (int i = 255; i > 0; i = i - 50)
-    {
-        ledcWrite(PWM_V_CH, i);
-        // ledcWrite(PWM_H_CH, i);
-        unsigned long time = millis();
-        while (millis() - time < 20000)
-        {
-            Serial.print(">PWM_Heater:");
-            Serial.println(i);
-            // Serial.print(",");
-            Serial.print(">time:");
-            Serial.println(millis() - time);
-            // Serial.print(",");
-            Serial.print(">Channel_0:");
-            Serial.println(ads.readADC_SingleEnded(0));
-            // Serial.print(",");
-            Serial.print(">Channel_1:");
-            Serial.println(ads.readADC_SingleEnded(1));
-            // Serial.print(",");
-            Serial.print(">Channel_2:");
-            Serial.println(ads.readADC_SingleEnded(2));
-            // Serial.print(",");
-            Serial.print(">Channel_3:");
-            Serial.println(ads.readADC_SingleEnded(3));
-        }
-    }
-    ledcWrite(PWM_V_CH, 0);
-    // ledcWrite(PWM_H_CH, 0);
-}
-
 void onPump()
 {
     std::vector<uint8_t> pump_on = switchCommand(1, pump_relay, 1);
@@ -866,114 +984,32 @@ void relayRange(int x, int y, int state)
     }
 }
 
-void sector_1_on()
+int purgeChannel(int channel)
 {
-    relayRange(0, 7, 1);
-}
-
-void sector_1_off()
-{
-    relayRange(0, 7, 0);
-}
-
-void sector_2_on()
-{
-    relayRange(8, 15, 1);
-}
-
-void sector_2_off()
-{
-    relayRange(8, 15, 0);
-}
-
-void sector_3_on()
-{
-    relayRange(16, 23, 1);
-}
-
-void sector_3_off()
-{
-    relayRange(16, 23, 0);
-}
-
-void sector_4_on()
-{
-    relayRange(24, 31, 1);
-}
-
-void sector_4_off()
-{
-    relayRange(24, 31, 0);
-}
-
-void sector_5_on()
-{
-    relayRange(32, 39, 1);
-}
-
-void sector_5_off()
-{
-    relayRange(32, 39, 0);
-}
-
-void s1pOn()
-{
-    std::vector<uint8_t> pump_on = switchCommand(1, clean_1r, 1);
-    Serial2.write(pump_on.data(), pump_on.size());
-}
-
-void s1pOff()
-{
-    std::vector<uint8_t> pump_on = switchCommand(1, clean_1r, 0);
-    Serial2.write(pump_on.data(), pump_on.size());
-}
-
-void s2pOn()
-{
-    std::vector<uint8_t> pump_on = switchCommand(1, clean_2r, 1);
-    Serial2.write(pump_on.data(), pump_on.size());
-}
-
-void s2pOff()
-{
-    std::vector<uint8_t> pump_on = switchCommand(1, clean_2r, 0);
-    Serial2.write(pump_on.data(), pump_on.size());
-}
-
-void s3pOn()
-{
-    std::vector<uint8_t> pump_on = switchCommand(1, clean_3r, 1);
-    Serial2.write(pump_on.data(), pump_on.size());
-}
-
-void s3pOff()
-{
-    std::vector<uint8_t> pump_on = switchCommand(1, clean_3r, 0);
-    Serial2.write(pump_on.data(), pump_on.size());
-}
-
-void s4pOn()
-{
-    std::vector<uint8_t> pump_on = switchCommand(1, clean_4r, 1);
-    Serial2.write(pump_on.data(), pump_on.size());
-}
-
-void s4pOff()
-{
-    std::vector<uint8_t> pump_on = switchCommand(1, clean_4r, 0);
-    Serial2.write(pump_on.data(), pump_on.size());
-}
-
-void s5pOn()
-{
-    std::vector<uint8_t> pump_on = switchCommand(1, clean_5r, 1);
-    Serial2.write(pump_on.data(), pump_on.size());
-}
-
-void s5pOff()
-{
-    std::vector<uint8_t> pump_on = switchCommand(1, clean_5r, 0);
-    Serial2.write(pump_on.data(), pump_on.size());
+    if (channel >= 0 && channel < 8)
+    {
+        return clean_1r;
+    }
+    else if (channel >= 8 && channel < 16)
+    {
+        return clean_2r;
+    }
+    else if (channel >= 16 && channel < 24)
+    {
+        return clean_3r;
+    }
+    else if (channel >= 24 && channel < 32)
+    {
+        return clean_4r;
+    }
+    else if (channel >= 32 && channel < 40)
+    {
+        return clean_5r;
+    }
+    else
+    {
+        return -1;
+    }
 }
 
 void readConfigCMD()
@@ -990,54 +1026,19 @@ void readConfigCMD()
     { expSAVE(); };
     commandMap["checkState"] = []()
     { checkState(); };
-    commandMap["adsPWM"] = []()
-    { ads_pwm_test(); };
-    commandMap["adsPWMrev"] = []()
-    { ads_pwm_test_rev(); };
-    commandMap["adsPWMcon"] = []()
-    { ads_pwm_control(); };
+    // commandMap["adsPWM"] = []()
+    // { ads_pwm_test(); };
+    // commandMap["adsPWMrev"] = []()
+    // { ads_pwm_test_rev(); };
+    // commandMap["adsPWMcon"] = []()
+    // { ads_pwm_control(); };
     commandMap["pumpOn"] = []()
     { onPump(); };
     commandMap["pumpOff"] = []()
     { offPump(); };
-    commandMap["sector1On"] = []()
-    { sector_1_on(); };
-    commandMap["sector1Off"] = []()
-    { sector_1_off(); };
-    commandMap["sector2On"] = []()
-    { sector_2_on(); };
-    commandMap["sector2Off"] = []()
-    { sector_2_off(); };
-    commandMap["sector3On"] = []()
-    { sector_3_on(); };
-    commandMap["sector3Off"] = []()
-    { sector_3_off(); };
-    commandMap["sector4On"] = []()
-    { sector_4_on(); };
-    commandMap["sector4Off"] = []()
-    { sector_4_off(); };
-    commandMap["sector5On"] = []()
-    { sector_5_on(); };
-    commandMap["sector5Off"] = []()
-    { sector_5_off(); };
-    commandMap["s1pOn"] = []()
-    { s1pOn(); };
-    commandMap["s1pOff"] = []()
-    { s1pOff(); };
-    commandMap["s2pOn"] = []()
-    { s2pOn(); };
-    commandMap["s2pOff"] = []()
-    { s2pOff(); };
-    commandMap["s3pOn"] = []()
-    { s3pOn(); };
-    commandMap["s3pOff"] = []()
-    { s3pOff(); };
-    commandMap["s4pOn"] = []()
-    { s4pOn(); };
-    commandMap["s4pOff"] = []()
-    { s4pOff(); };
-    commandMap["s5pOn"] = []()
-    { s5pOn(); };
-    commandMap["s5pOff"] = []()
-    { s5pOff(); };
+    commandMap["purgeAll"] = []()
+    { purgeAll(); };
+    commandMap["purgeOff"] = []()
+    { purgeOff(); };
+    // test_CMD();
 }
