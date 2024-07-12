@@ -36,7 +36,7 @@ void setup()
   pwmSetup(); // something in pwm setup is causing sd card to not initialize properly
   // delay(100);
   // ledcWrite(PWM_H_CH, 150);
-  expMutexSetup();
+
   relay_off();
 
   cmdSetup();

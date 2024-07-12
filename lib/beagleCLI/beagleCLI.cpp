@@ -14,7 +14,7 @@
 #include <pinConfig.h>
 #include <Hardware.h>
 #include <functional>
-#include <SensorDataFactory.h>
+// #include <SensorDataFactory.h>
 #include <zsrelay.h>
 #include <exp_setup.h>
 
@@ -246,7 +246,7 @@ void cmdSetup()
 {
     hardwareCMD();
     networkCMD();
-    sensorCMD();
+    // sensorCMD();
     zsrelayCMD();
     readConfigCMD();
     commandMap["deleteAll"] = []()

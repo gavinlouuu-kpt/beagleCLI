@@ -367,7 +367,7 @@ bool WiFiManager::connectToWiFi(const String &ssid, const String &password)
 
 void networkState()
 {
-    char *hostname = "www.google.com";
+    const char *hostname = "www.google.com";
     IPAddress resolvedIP;
 
     if (WiFi.status() != WL_CONNECTED)
