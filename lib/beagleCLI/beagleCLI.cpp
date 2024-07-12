@@ -13,6 +13,7 @@
 #include <Init.h>
 #include <pinConfig.h>
 #include <functional>
+#include <LittleFS_CMD.h>
 
 std::map<String, std::function<void()>> commandMap;
 using CommandHandler = std::function<void(int)>;
@@ -226,6 +227,7 @@ bool deleteAllFilesInDirectory(const char *dirPath)
 
 void cmdSetup()
 {
+    LittleFS_CMD();
     networkCMD();
     commandMap["deleteAll"] = []()
     { deleteAllFilesInLittleFS(); };
