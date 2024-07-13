@@ -353,6 +353,10 @@ void backgroundWIFI()
             Serial.println("\nConnected to " + bestSSID);
             Serial.println("IP address: " + WiFi.localIP().toString());
             configTime(gmtOffset_sec, daylightOffset_sec, "time.nist.gov", "hk.pool.ntp.org", "asia.pool.ntp.org");
+            M5.Lcd.setTextColor(WHITE);
+            M5.Lcd.println("SSID:" + bestSSID);
+            M5.Lcd.print("IP address: ");
+            M5.Lcd.println(WiFi.localIP());
             arduinoOTAsetup();
             serverSetup();
 
