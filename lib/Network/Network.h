@@ -9,6 +9,9 @@ void networkCMD();
 void networkCheck();
 void backgroundWIFI();
 
+// Webserver
+void handleRoot();
+
 class WiFiManager
 {
 public:

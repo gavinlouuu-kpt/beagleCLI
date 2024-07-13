@@ -7,10 +7,43 @@
 #include <FirebaseJson.h>
 #include <map>
 #include <beagleCLI.h>
-#include <SD.h>
+// #include <SD.h>
 #include <ArduinoOTA.h>
+#include <WebServer.h>
+#include <M5Stack.h>
 
 TaskHandle_t ntCheckTaskHandler;
+
+WebServer server(80);
+
+void handleRoot()
+{
+    File root = SD.open("/");
+    String html = "<html><body><h1>Files on SD Card</h1><ul>";
+    File file = root.openNextFile();
+    while (file)
+    {
+        if (file.isDirectory())
+        {
+            html += "<li>Directory: ";
+            html += file.name();
+            html += "</li>";
+        }
+        else
+        {
+            html += "<li><a href='";
+            html += file.name();
+            html += "'>";
+            html += file.name();
+            html += "</a></li>";
+        }
+        file = root.openNextFile();
+    }
+    html += "</ul></body></html>";
+    server.send(200, "text/html", html);
+    file.close();
+    root.close();
+}
 
 void saveWIFICredentialsToSD(const char *ssid, const char *password)
 {
@@ -178,6 +211,10 @@ void backgroundWIFI()
             Serial.println("IP address: " + WiFi.localIP().toString());
             configTime(gmtOffset_sec, daylightOffset_sec, "time.nist.gov", "hk.pool.ntp.org", "asia.pool.ntp.org");
             arduinoOTAsetup();
+
+            server.on("/", HTTP_GET, handleRoot);
+            server.begin();
+
             //   firebaseSetup();
         }
         else
@@ -207,6 +244,7 @@ void wifiCheckTask(void *pvParameters)
             if (WiFi.status() == WL_CONNECTED)
             {
                 ArduinoOTA.handle();
+                server.handleClient();
                 //   updateLocalTime(); // Update time every minute if background WIFI managed
                 //   fbKeepAlive();
             }
@@ -353,6 +391,8 @@ bool WiFiManager::connectToWiFi(const String &ssid, const String &password)
         Serial.println("\nConnected!");
         Serial.print("IP Address: ");
         Serial.println(WiFi.localIP());
+        // M5.Lcd.println("IP Address:");
+        // M5.Lcd.println(WiFi.localIP());
         long hkGMToffset = 28800;
         long daylightOffset_sec = 0;
         configTime(hkGMToffset, daylightOffset_sec, "hk.pool.ntp.org", "asia.pool.ntp.org", "time.nist.gov"); // Initialize NTP
@@ -383,6 +423,10 @@ void networkState()
             Serial.print(hostname);
             Serial.print(" is: ");
             Serial.println(resolvedIP);
+            Serial.print("IP address: ");
+            Serial.println(WiFi.localIP());
+            M5.Lcd.println("IP Address:");
+            M5.Lcd.println(WiFi.localIP());
         }
         else
         {
