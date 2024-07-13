@@ -16,33 +16,176 @@ TaskHandle_t ntCheckTaskHandler;
 
 WebServer server(80);
 
-void handleRoot()
+void listDirectory(String path)
 {
-    File root = SD.open("/");
-    String html = "<html><body><h1>Files on SD Card</h1><ul>";
-    File file = root.openNextFile();
+    Serial.println("Opening directory: " + path);
+    // Ensure path starts with a slash
+    if (!path.startsWith("/"))
+    {
+        path = "/" + path;
+    }
+
+    File dir = SD.open(path);
+    if (!dir)
+    {
+        Serial.println("Failed to open directory.");
+        server.send(404, "text/plain", "Directory not found");
+        return;
+    }
+    if (!dir.isDirectory())
+    {
+        Serial.println("Not a directory.");
+        dir.close();
+        server.send(404, "text/plain", "Not a directory");
+        return;
+    }
+
+    String html = "<html><body><h1>Directory: " + path + "</h1><ul>";
+    File file = dir.openNextFile();
     while (file)
     {
+        String fileName = file.name();
+        String filePath = path + "/" + fileName;
+        Serial.println("Listing file: " + filePath);
         if (file.isDirectory())
         {
-            html += "<li>Directory: ";
-            html += file.name();
-            html += "</li>";
+            html += "<li><a href='/?dir=" + filePath + "'>Directory: " + fileName + "</a></li>";
         }
         else
         {
-            html += "<li><a href='";
-            html += file.name();
-            html += "'>";
-            html += file.name();
-            html += "</a></li>";
+            html += "<li><a href='/download?file=" + filePath + "'>" + fileName + "</a></li>";
         }
-        file = root.openNextFile();
+        file = dir.openNextFile();
     }
-    html += "</ul></body></html>";
+    html += "</ul><a href='/?dir=/'>Go to Root</a></body></html>";
     server.send(200, "text/html", html);
     file.close();
-    root.close();
+    dir.close();
+}
+
+void handleRoot()
+{
+    if (!server.hasArg("dir"))
+    {
+        listDirectory("/");
+    }
+    else
+    {
+        listDirectory(server.arg("dir"));
+    }
+}
+void handleFileRead()
+{
+    String path = server.uri();
+    File file = SD.open(path, FILE_READ);
+    if (!file)
+    {
+        server.send(404, "text/plain", "File not found");
+        return;
+    }
+    if (path.endsWith(".json"))
+    {
+        String fileContent = "";
+        while (file.available())
+        {
+            fileContent += char(file.read());
+        }
+        // Adjust the form action and ensure correct path handling
+        String html = "<form action='/edit' method='POST'>";
+        html += "<input type='hidden' name='path' value='" + path + "'>"; // Ensure this carries the correct path
+        html += "<textarea name='content' style='width:100%;height:200px;'>" + fileContent + "</textarea>";
+        html += "<button type='submit'>Save</button>";
+        html += "</form>";
+        server.send(200, "text/html", html);
+    }
+    else
+    {
+        server.send(200, "text/plain", "File format not supported for editing.");
+    }
+    file.close();
+}
+
+void handleNotFound()
+{
+    // You can add custom logic to handle different cases of not found
+    String path = server.uri();
+
+    // Attempt to handle file reading if the path looks like a file request
+    if (path.startsWith("/sd/") || path.endsWith(".json"))
+    {                     // Customize this condition based on your file structure
+        handleFileRead(); // Attempt to handle as file read
+    }
+    else
+    {
+        // If it does not seem to be a file access attempt, handle as a general 404 not found
+        Serial.print("Unmatched request: ");
+        Serial.println(path);
+        server.send(404, "text/plain", "404: Not Found");
+    }
+}
+
+void handleEdit()
+{
+    String path = server.arg("path"); // This should give the correct path e.g., "/sd/expSetup.json"
+    File file = SD.open(path, FILE_WRITE);
+    if (!file)
+    {
+        server.send(500, "text/plain", "Failed to open file for writing");
+        return;
+    }
+    String content = server.arg("content");
+    file.println(content);
+    file.close();
+    server.send(200, "text/plain", "File saved successfully");
+}
+
+void handleFileDownload()
+{
+    if (server.hasArg("file"))
+    {
+        String path = server.arg("file");
+        File file = SD.open(path, FILE_READ);
+        if (!file)
+        {
+            server.send(404, "text/plain", "File not found");
+            return;
+        }
+
+        if (file.isDirectory())
+        {
+            file.close();
+            server.send(500, "text/plain", "Cannot download a directory");
+            return;
+        }
+
+        String fileName = path.substring(path.lastIndexOf("/") + 1);
+        server.setContentLength(file.size());
+        server.sendHeader("Content-Type", "application/octet-stream");
+        server.sendHeader("Content-Disposition", "attachment; filename=\"" + fileName + "\"");
+        server.send(200, "application/octet-stream", ""); // Sends headers
+        WiFiClient client = server.client();
+
+        byte buffer[128];
+        while (file.available())
+        {
+            int l = file.read(buffer, 128);
+            client.write(buffer, l);
+        }
+        file.close();
+    }
+    else
+    {
+        server.send(400, "text/plain", "Bad Request");
+    }
+}
+
+void serverSetup()
+{
+    server.on("/", HTTP_GET, handleRoot);
+    server.on("/edit", HTTP_POST, handleEdit);
+    server.on("/download", HTTP_GET, handleFileDownload);
+    server.onNotFound(handleNotFound);
+    server.begin();
 }
 
 void saveWIFICredentialsToSD(const char *ssid, const char *password)
@@ -211,9 +354,7 @@ void backgroundWIFI()
             Serial.println("IP address: " + WiFi.localIP().toString());
             configTime(gmtOffset_sec, daylightOffset_sec, "time.nist.gov", "hk.pool.ntp.org", "asia.pool.ntp.org");
             arduinoOTAsetup();
-
-            server.on("/", HTTP_GET, handleRoot);
-            server.begin();
+            serverSetup();
 
             //   firebaseSetup();
         }
@@ -301,6 +442,7 @@ void WiFiManager::ManageWIFI()
 void WiFiManager::scanNetworks()
 {
     Serial.println("Scanning WiFi networks...");
+    M5.Lcd.println("Scanning WiFi networks...");
     int networkCount = WiFi.scanNetworks();
     if (networkCount == 0)
     {
@@ -391,8 +533,6 @@ bool WiFiManager::connectToWiFi(const String &ssid, const String &password)
         Serial.println("\nConnected!");
         Serial.print("IP Address: ");
         Serial.println(WiFi.localIP());
-        // M5.Lcd.println("IP Address:");
-        // M5.Lcd.println(WiFi.localIP());
         long hkGMToffset = 28800;
         long daylightOffset_sec = 0;
         configTime(hkGMToffset, daylightOffset_sec, "hk.pool.ntp.org", "asia.pool.ntp.org", "time.nist.gov"); // Initialize NTP
@@ -425,8 +565,6 @@ void networkState()
             Serial.println(resolvedIP);
             Serial.print("IP address: ");
             Serial.println(WiFi.localIP());
-            M5.Lcd.println("IP Address:");
-            M5.Lcd.println(WiFi.localIP());
         }
         else
         {
