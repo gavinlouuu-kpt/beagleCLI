@@ -159,19 +159,46 @@ void handleFileDownload()
         }
 
         String fileName = path.substring(path.lastIndexOf("/") + 1);
-        server.setContentLength(file.size());
-        server.sendHeader("Content-Type", "application/octet-stream");
-        server.sendHeader("Content-Disposition", "attachment; filename=\"" + fileName + "\"");
-        server.send(200, "application/octet-stream", ""); // Sends headers
-        WiFiClient client = server.client();
 
-        byte buffer[128];
-        while (file.available())
+        // Check if the file is a JSON file
+        if (fileName.endsWith(".json"))
         {
-            int l = file.read(buffer, 128);
-            client.write(buffer, l);
+            String fileContent = "";
+            while (file.available())
+            {
+                fileContent += (char)file.read();
+            }
+            file.close();
+
+            String html = "<!DOCTYPE html><html><body>"
+                          "<h1>Edit JSON File</h1>"
+                          "<form action='/save' method='post'>"
+                          "<textarea name='content' rows='20' cols='80'>" +
+                          fileContent + "</textarea><br>"
+                                        "<input type='hidden' name='path' value='" +
+                          path + "'>"
+                                 "<input type='submit' value='Save Changes'>"
+                                 "</form>"
+                                 "</body></html>";
+            server.send(200, "text/html", html);
         }
-        file.close();
+        else
+        {
+            // Normal file download process
+            server.setContentLength(file.size());
+            server.sendHeader("Content-Type", "application/octet-stream");
+            server.sendHeader("Content-Disposition", "attachment; filename=\"" + fileName + "\"");
+            server.send(200, "application/octet-stream", ""); // Sends headers
+            WiFiClient client = server.client();
+
+            byte buffer[128];
+            while (file.available())
+            {
+                int l = file.read(buffer, 128);
+                client.write(buffer, l);
+            }
+            file.close();
+        }
     }
     else
     {
@@ -183,6 +210,7 @@ void serverSetup()
 {
     server.on("/", HTTP_GET, handleRoot);
     server.on("/edit", HTTP_POST, handleEdit);
+    server.on("/save", HTTP_POST, handleEdit);
     server.on("/download", HTTP_GET, handleFileDownload);
     server.onNotFound(handleNotFound);
     server.begin();
