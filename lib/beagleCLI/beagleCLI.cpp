@@ -1,7 +1,7 @@
 // beagleCLI.cpp
 #include <WiFi.h>
 #include <FirebaseJson.h>
-#include <LittleFS.h>
+// #include <LittleFS.h>
 #include <map>
 #include <Arduino.h>
 #include <stdio.h>
@@ -17,6 +17,7 @@
 // #include <SensorDataFactory.h>
 #include <zsrelay.h>
 #include <exp_setup.h>
+#include <M5Stack.h>
 
 std::map<String, std::function<void()>> commandMap;
 using CommandHandler = std::function<void(int)>;
@@ -106,7 +107,7 @@ void printFileContent()
     String fileName = readSerialInput();
     Serial.println("Opening file: " + fileName);
 
-    File file = LittleFS.open("/" + fileName, "r");
+    File file = SD.open("/" + fileName, "r");
     if (!file)
     {
         Serial.println("Failed to open file for reading");
@@ -127,7 +128,7 @@ void printHexFileContent()
     String fileName = readSerialInput(); // Make sure this function implements a way to read input from Serial.
     Serial.println("Opening file: " + fileName);
 
-    File file = LittleFS.open("/" + fileName, "r");
+    File file = SD.open("/" + fileName, "r");
     if (!file)
     {
         Serial.println("Failed to open file for reading");
@@ -151,7 +152,7 @@ void printHexFileContent()
 
 void listFilesInDirectory(const String &directoryPath)
 {
-    File dir = LittleFS.open(directoryPath);
+    File dir = SD.open(directoryPath);
     if (!dir)
     {
         Serial.println("Failed to open directory");
@@ -191,14 +192,14 @@ void listFilesInDirectory(const String &directoryPath)
     }
 }
 
-bool deleteAllFilesInLittleFS()
+bool deleteAllFilesInSD()
 {
     return deleteAllFilesInDirectory("/");
 }
 
 bool deleteAllFilesInDirectory(const char *dirPath)
 {
-    File dir = LittleFS.open(dirPath);
+    File dir = SD.open(dirPath);
     if (!dir || !dir.isDirectory())
     {
         Serial.println(String("Failed to open directory: ") + dirPath);
@@ -225,12 +226,12 @@ bool deleteAllFilesInDirectory(const char *dirPath)
                 Serial.println(String("Failed to delete directory: ") + filePath);
                 return false;
             }
-            LittleFS.rmdir(filePath.c_str());
+            SD.rmdir(filePath.c_str());
         }
         else
         {
             file.close(); // Close the file if it's open
-            if (!LittleFS.remove(filePath.c_str()))
+            if (!SD.remove(filePath.c_str()))
             {
                 Serial.println(String("Failed to remove file: ") + filePath);
                 return false;
@@ -250,7 +251,7 @@ void cmdSetup()
     zsrelayCMD();
     readConfigCMD();
     commandMap["deleteAll"] = []()
-    { deleteAllFilesInLittleFS(); };
+    { deleteAllFilesInSD(); };
     commandMap["ls"] = []()
     { listFilesInDirectory(); };
     commandMap["open"] = []()
