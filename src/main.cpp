@@ -28,6 +28,12 @@ void SD_check()
   {
     M5.Lcd.setTextColor(GREEN);
     M5.Lcd.println("SD Card OK");
+    if (!SD.exists("/wifiCredentials.json"))
+    {
+      Serial.println("wifiCredentials.json does not exist");
+      // return;
+    }
+    networkCheck();
     return;
   }
 }
@@ -68,12 +74,7 @@ void setup()
   pwmSetup();
   relay_off();
   cmdSetup();
-  if (!SD.exists("/wifiCredentials.json"))
-  {
-    Serial.println("wifiCredentials.json does not exist");
-    return;
-  }
-  networkCheck();
+
   SD_check();
   ADS_check();
 }
