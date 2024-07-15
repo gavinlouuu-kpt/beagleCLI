@@ -3,21 +3,14 @@
 #include <WiFi.h>
 #include <time.h>
 #include <Init.h>
-// #include <LittleFS.h>
 #include <FirebaseJson.h>
 #include <map>
 #include <beagleCLI.h>
-// #include <SD.h>
 #include <ArduinoOTA.h>
-
 #include <M5Stack.h>
-#include <esp32_html.h>
-
 #include <AsyncTCP.h>
 #include <ESPAsyncWebServer.h>
 #include <exp_setup.h>
-
-// #include <WebServer.h>
 
 TaskHandle_t ntCheckTaskHandler;
 
@@ -144,7 +137,7 @@ void handleSpecialFunction(AsyncWebServerRequest *request)
 {
     // Perform some actions here, for example, reset counters, read sensors, etc.
     Serial.println("Special function invoked!");
-    expTask();
+    startExperimentTask(SamplingType::ADS_DETAIL);
 
     // You can redirect back to the main page or just send a confirmation message
     request->redirect("/"); // Redirect back to home after action

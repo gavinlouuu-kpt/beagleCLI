@@ -33,9 +33,19 @@ extern String currentPath;
 extern volatile int heatingTime;
 extern std::vector<int> heaterSettings;
 
+enum class SamplingType
+{
+    ADS_DETAIL,
+    ADS,
+    BME680
+};
+
+extern SamplingType samplingType;
+
 // RTOS task handles
 extern TaskHandle_t bmeTaskHandle, adsTaskHandle, expLoopTaskHandle;
 void expTask();
+void startExperimentTask(SamplingType samplingType);
 
 // File system functions
 std::vector<int> stringToArray(const std::string &str);

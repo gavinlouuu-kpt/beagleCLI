@@ -1,20 +1,17 @@
 // beagleCLI.cpp
 #include <WiFi.h>
 #include <FirebaseJson.h>
-// #include <LittleFS.h>
 #include <map>
 #include <Arduino.h>
 #include <stdio.h>
 #include <string>
 #include <beagleCLI.h>
-// #include <Firebase_ESP_Client.h>
 #include <Network.h>
 #include <Wire.h>
 #include <Init.h>
 #include <pinConfig.h>
 #include <Hardware.h>
 #include <functional>
-// #include <SensorDataFactory.h>
 #include <zsrelay.h>
 #include <exp_setup.h>
 #include <M5Stack.h>

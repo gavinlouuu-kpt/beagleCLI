@@ -36,6 +36,8 @@ volatile unsigned long startTime = 0;
 String exp_name = "";
 String currentPath = "";
 
+SamplingType samplingType;
+
 int sensorCheck()
 {
     if (!bme.begin() && !ads.begin(ADSi2c))
@@ -46,19 +48,76 @@ int sensorCheck()
     if (bme.begin())
     {
         Serial.println("BME680 sensor found!");
-        BMEsampleTask();
+        // BMEsampleTask();
         return 1;
     }
     else if (ads.begin(ADSi2c))
     {
-        ads.setDataRate(RATE_ADS1115_860SPS);
-        ads.setGain(GAIN_ONE);
+        // ads.setDataRate(RATE_ADS1115_860SPS);
+        // ads.setGain(GAIN_ONE);
         Serial.println("ADS1115 sensor found!");
-        ADSsampleTask();
+        // ADSsampleTask();
         return 2;
     }
     Serial.println("Sensor checking failed!");
     return -1;
+}
+
+void deleteTaskBasedOnType(SamplingType samplingType)
+{
+    switch (samplingType)
+    {
+    case SamplingType::ADS_DETAIL:
+        if (adsTaskHandle != NULL)
+        {
+            vTaskDelete(adsTaskHandle);
+            adsTaskHandle = NULL; // Clear the handle after deletion
+        }
+        break;
+
+    case SamplingType::ADS:
+        if (adsTaskHandle != NULL)
+        {
+            vTaskDelete(adsTaskHandle);
+            adsTaskHandle = NULL; // Clear the handle after deletion
+        }
+        break;
+
+    case SamplingType::BME680:
+        if (bmeTaskHandle != NULL)
+        {
+            vTaskDelete(bmeTaskHandle);
+            bmeTaskHandle = NULL; // Clear the handle after deletion
+        }
+        break;
+
+    default:
+        Serial.println("Unknown sampling type for deletion!");
+        break;
+    }
+}
+
+TaskHandle_t samplingMethod(SamplingType samplingType)
+{
+    if (samplingType == SamplingType::ADS_DETAIL)
+    {
+        ads.begin(ADSi2c);
+        ads.setDataRate(RATE_ADS1115_860SPS);
+        ads.setGain(GAIN_ONE);
+        ADSsampleTask();
+
+        return adsTaskHandle;
+    }
+    else if (samplingType == SamplingType::ADS)
+    {
+        ads.begin(ADSi2c);
+        ads.setDataRate(RATE_ADS1115_860SPS);
+        ads.setGain(GAIN_ONE);
+        // ADSsampleTask();
+
+        return adsTaskHandle;
+    }
+    return NULL;
 }
 
 int serial_delay = 15;
@@ -139,9 +198,12 @@ int purgeChannel(int channel)
     }
 }
 
-void exp_loop(FirebaseJson config, int setup_count, TaskHandle_t samplingTask)
+void exp_loop(FirebaseJson config, int setup_count, SamplingType samplingType)
 {
-    int sensorType = sensorCheck();
+    TaskHandle_t samplingTask = samplingMethod(samplingType);
+
+    // int sensorType = sensorCheck();
+
     // split function to accomodate fast and full ADS
     // now task type is decided by TaskHandle instead of dynamic sensorType detection
 
@@ -181,7 +243,16 @@ void exp_loop(FirebaseJson config, int setup_count, TaskHandle_t samplingTask)
 
                 // Notify the sampling task to start data acquisition
                 // xTaskNotifyGive(adsTaskHandle);
-                xTaskNotifyGive(samplingTask);
+
+                if (samplingTask == NULL)
+                {
+                    Serial.println("Sampling task handle is NULL");
+                }
+                else
+                {
+                    xTaskNotifyGive(samplingTask);
+                }
+                // xTaskNotifyGive(samplingTask);
 
                 Serial.println("Running experiment for channel: " + String(cur_channel));
                 std::vector<uint8_t> on_command = switchCommand(1, cur_channel, 1);
@@ -223,15 +294,7 @@ void exp_loop(FirebaseJson config, int setup_count, TaskHandle_t samplingTask)
             }
         }
     }
-
-    if (sensorType == 1)
-    {
-        vTaskDelete(bmeTaskHandle);
-    }
-    else if (sensorType == 2)
-    {
-        vTaskDelete(adsTaskHandle);
-    }
+    deleteTaskBasedOnType(samplingType);
     relay_off();
 
     Serial.println("END of LOOP");
@@ -239,7 +302,7 @@ void exp_loop(FirebaseJson config, int setup_count, TaskHandle_t samplingTask)
     last_setup_tracker = -1;
 }
 
-void exp_build(TaskHandle_t taskHandle)
+void exp_build(SamplingType samplingType)
 {
     // File name for the JSON configuration
     const char *filename = SETUP_NAME;
@@ -249,33 +312,71 @@ void exp_build(TaskHandle_t taskHandle)
     json.setJsonData(configData);
     int setupCount = count_setup(configData);
     // Serial.println("Number of setups: " + String(setupCount));
-    exp_loop(json, setupCount, taskHandle);
+    exp_loop(json, setupCount, samplingType);
 }
 
-void exp_start(void *pvParameters)
+// void exp_start(void *pvParameters)
+// {
+//     // adsTaskHandle = all ads channels
+//     xTaskCreate(
+//         exp_start,           /* Task function. */
+//         "exp_start",         /* String with name of task. */
+//         10240,               /* Stack size in bytes. */
+//         NULL,                /* Parameter passed as input of the task */
+//         1,                   /* Priority of the task. */
+//         &expLoopTaskHandle); /* Task handle. */
+//     expLoopTaskHandle = xTaskGetCurrentTaskHandle();
+//     exp_build(SamplingType::ADS_DETAIL);
+//     vTaskDelete(NULL); // should i delete by task handle?
+// }
+
+// void exp_fast(void *pvParameters)
+// {
+//     expLoopTaskHandle = xTaskGetCurrentTaskHandle();
+//     exp_build(SamplingType::ADS);
+//     vTaskDelete(NULL); // should i delete by task handle?
+// }
+
+// void expTask()
+// {
+//     xTaskCreate(
+//         exp_start,           /* Task function. */
+//         "exp_start",         /* String with name of task. */
+//         10240,               /* Stack size in bytes. */
+//         NULL,                /* Parameter passed as input of the task */
+//         1,                   /* Priority of the task. */
+//         &expLoopTaskHandle); /* Task handle. */
+// }
+
+void exp_generic(void *pvParameters)
 {
-    // adsTaskHandle = all ads channels
+    // Cast the passed parameter back to SamplingType
+    SamplingType samplingType = *(SamplingType *)pvParameters;
+
+    // Obtain and update the global task handle
     expLoopTaskHandle = xTaskGetCurrentTaskHandle();
-    exp_build(adsTaskHandle);
-    vTaskDelete(NULL); // should i delete by task handle?
+
+    // Build experiment based on the sampling type
+    exp_build(samplingType);
+
+    // Delete the current task
+    vTaskDelete(NULL);
 }
 
-void exp_fast(void *pvParameters)
+void startExperimentTask(SamplingType samplingType)
 {
-    expLoopTaskHandle = xTaskGetCurrentTaskHandle();
-    exp_build(adsTaskHandle);
-    vTaskDelete(NULL); // should i delete by task handle?
-}
+    // Allocate memory for passing the sampling type to the new task
+    SamplingType *taskParam = new SamplingType(samplingType);
 
-void expTask()
-{
+    // Create a task and pass the sampling type as a parameter
     xTaskCreate(
-        exp_start,           /* Task function. */
-        "exp_start",         /* String with name of task. */
-        10240,               /* Stack size in bytes. */
-        NULL,                /* Parameter passed as input of the task */
-        1,                   /* Priority of the task. */
-        &expLoopTaskHandle); /* Task handle. */
+        exp_generic,       // Task function
+        "Experiment Task", // Name of the task
+        10240,             // Stack size in bytes
+        (void *)taskParam, // Parameter passed as input to the task
+        1,                 // Priority of the task
+        &expLoopTaskHandle // Task handle updated globally
+    );
 }
 
 void M5_SD_JSON(const char *filename, String &configData)
@@ -293,7 +394,7 @@ void M5_SD_JSON(const char *filename, String &configData)
                                       // 以读取模式打开文件"/hello.txt"
     if (myFile)
     {
-        M5.Lcd.println("with cmd /expSetup.json Content:");
+        // M5.Lcd.println("with cmd /expSetup.json Content:");
         while (myFile.available())
         {
             // M5.Lcd.write(myFile.read());
@@ -312,25 +413,25 @@ void M5_SD_JSON(const char *filename, String &configData)
     }
 }
 
-void displayMap(std::unordered_map<int, std::vector<std::pair<unsigned long, uint32_t>>> UOM_sensorData)
-{
-    Serial.println("Setting,Timestamp,Data");
-    for (auto &entry : UOM_sensorData)
-    {
-        int setting = entry.first;
-        for (auto &data : entry.second)
-        {
-            unsigned long timestamp = data.first; // Extract timestamp
-            uint32_t gasResistance = data.second; // Extract gas resistance
-            Serial.print(setting);
-            Serial.print(",");
-            Serial.print(timestamp);
-            Serial.print(",");
-            Serial.println(gasResistance);
-        }
-    }
-    Serial.println("Data in object printed");
-}
+// void displayMap(std::unordered_map<int, std::vector<std::pair<unsigned long, uint32_t>>> UOM_sensorData)
+// {
+//     Serial.println("Setting,Timestamp,Data");
+//     for (auto &entry : UOM_sensorData)
+//     {
+//         int setting = entry.first;
+//         for (auto &data : entry.second)
+//         {
+//             unsigned long timestamp = data.first; // Extract timestamp
+//             uint32_t gasResistance = data.second; // Extract gas resistance
+//             Serial.print(setting);
+//             Serial.print(",");
+//             Serial.print(timestamp);
+//             Serial.print(",");
+//             Serial.println(gasResistance);
+//         }
+//     }
+//     Serial.println("Data in object printed");
+// }
 
 void onPump()
 {
@@ -346,8 +447,8 @@ void offPump()
 
 void readConfigCMD()
 {
-    commandMap["start"] = []()
-    { expTask(); };
+    // commandMap["start"] = []()
+    // { expTask(); };
     commandMap["sample"] = []()
     { BMEsampleTask(); };
     commandMap["pumpOn"] = []()
