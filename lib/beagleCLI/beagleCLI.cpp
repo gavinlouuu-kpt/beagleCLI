@@ -7,7 +7,7 @@
 #include <stdio.h>
 #include <string>
 #include <beagleCLI.h>
-#include <Firebase_ESP_Client.h>
+// #include <Firebase_ESP_Client.h>
 #include <Network.h>
 #include <Wire.h>
 #include <Init.h>

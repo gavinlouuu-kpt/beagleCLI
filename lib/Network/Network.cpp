@@ -9,34 +9,117 @@
 #include <beagleCLI.h>
 // #include <SD.h>
 #include <ArduinoOTA.h>
-#include <WebServer.h>
+
 #include <M5Stack.h>
+#include <esp32_html.h>
+
+#include <AsyncTCP.h>
+#include <ESPAsyncWebServer.h>
+
+// #include <WebServer.h>
 
 TaskHandle_t ntCheckTaskHandler;
 
-WebServer server(80);
+AsyncWebServer server(80);
 
-void listDirectory(String path)
+String urlEncode(const String &str)
 {
-    Serial.println("Opening directory: " + path);
-    // Ensure path starts with a slash
-    if (!path.startsWith("/"))
+    String encodedString = "";
+    char c;
+    char code0;
+    char code1;
+    for (unsigned int i = 0; i < str.length(); i++)
     {
-        path = "/" + path;
+        c = str.charAt(i);
+        if (c == ' ')
+        {
+            encodedString += '+';
+        }
+        else if (isalnum(c))
+        {
+            encodedString += c;
+        }
+        else
+        {
+            code1 = (c & 0xf) + '0';
+            if ((c & 0xf) > 9)
+            {
+                code1 = (c & 0xf) - 10 + 'A';
+            }
+            c = (c >> 4) & 0xf;
+            code0 = c + '0';
+            if (c > 9)
+            {
+                code0 = c - 10 + 'A';
+            }
+            encodedString += '%';
+            encodedString += code0;
+            encodedString += code1;
+        }
     }
+    return encodedString;
+}
+
+String urlDecode(const String &str)
+{
+    String decodedString = "";
+    char c;
+    char code0;
+    char code1;
+    for (unsigned int i = 0; i < str.length(); i++)
+    {
+        c = str.charAt(i);
+        if (c == '+')
+        {
+            decodedString += ' ';
+        }
+        else if (c == '%')
+        {
+            i++;
+            code0 = str.charAt(i);
+            i++;
+            code1 = str.charAt(i);
+            if (code0 >= '0' && code0 <= '9')
+            {
+                code0 = code0 - '0';
+            }
+            else if (code0 >= 'A' && code0 <= 'F')
+            {
+                code0 = code0 - 'A' + 10;
+            }
+            if (code1 >= '0' && code1 <= '9')
+            {
+                code1 = code1 - '0';
+            }
+            else if (code1 >= 'A' && code1 <= 'F')
+            {
+                code1 = code1 - 'A' + 10;
+            }
+            decodedString += static_cast<char>(code0 * 16 + code1);
+        }
+        else
+        {
+            decodedString += c;
+        }
+    }
+    return decodedString;
+}
+
+void handleHomePage(AsyncWebServerRequest *request)
+{
+    Serial.println("Home page requested");
+    request->send_P(200, "text/html", homePage);
+}
+
+void listSDdir(AsyncWebServerRequest *request, const String &rawPath)
+{
+    String path = urlDecode(rawPath); // Decode the path first
+    Serial.println(path);
 
     File dir = SD.open(path);
-    if (!dir)
+    if (!dir || !dir.isDirectory())
     {
-        Serial.println("Failed to open directory.");
-        server.send(404, "text/plain", "Directory not found");
-        return;
-    }
-    if (!dir.isDirectory())
-    {
-        Serial.println("Not a directory.");
-        dir.close();
-        server.send(404, "text/plain", "Not a directory");
+        request->send(404, "text/plain", "Directory not found");
         return;
     }
 
@@ -45,174 +128,310 @@ void listDirectory(String path)
     while (file)
     {
         String fileName = file.name();
-        String filePath = path + "/" + fileName;
-        Serial.println("Listing file: " + filePath);
+        String filePath = path + (path.endsWith("/") ? "" : "/") + fileName;
         if (file.isDirectory())
         {
-            html += "<li><a href='/?dir=" + filePath + "'>Directory: " + fileName + "</a></li>";
+            html += "<li><a href='/?dir=" + urlEncode(filePath) + "'>[Dir] " + fileName + "</a></li>";
         }
         else
         {
-            html += "<li><a href='/download?file=" + filePath + "'>" + fileName + "</a></li>";
+            html += "<li><a href='/download?file=" + urlEncode(filePath) + "'>" + fileName + "</a></li>";
         }
         file = dir.openNextFile();
     }
-    html += "</ul><a href='/?dir=/'>Go to Root</a></body></html>";
-    server.send(200, "text/html", html);
-    file.close();
-    dir.close();
+    html += "</ul><a href='/?dir=/'>Home</a></body></html>";
+    request->send(200, "text/html", html);
 }
 
-void handleRoot()
+void handleFS(AsyncWebServerRequest *request)
 {
-    if (!server.hasArg("dir"))
+    if (request->hasParam("dir"))
     {
-        listDirectory("/");
+        String path = request->getParam("dir")->value();
+        Serial.println(path);
+        listSDdir(request, path); // Pass the raw path directly
     }
     else
     {
-        listDirectory(server.arg("dir"));
+        listSDdir(request, "/"); // Start from the root directory
     }
 }
-void handleFileRead()
+
+// void handleFileRead()
+// {
+//     String path = server.uri();
+//     File file = SD.open(path, FILE_READ);
+//     if (!file)
+//     {
+//         server.send(404, "text/plain", "File not found");
+//         return;
+//     }
+//     if (path.endsWith(".json"))
+//     {
+//         String fileContent = "";
+//         while (file.available())
+//         {
+//             fileContent += char(file.read());
+//         }
+//         // Adjust the form action and ensure correct path handling
+//         String html = "<form action='/edit' method='POST'>";
+//         html += "<input type='hidden' name='path' value='" + path + "'>"; // Ensure this carries the correct path
+//         html += "<textarea name='content' style='width:100%;height:200px;'>" + fileContent + "</textarea>";
+//         html += "<button type='submit'>Save</button>";
+//         html += "</form>";
+//         server.send(200, "text/html", html);
+//     }
+//     else
+//     {
+//         server.send(200, "text/plain", "File format not supported for editing.");
+//     }
+//     file.close();
+// }
+
+// void handleFileRead(AsyncWebServerRequest *request)
+// {
+//     if (!request->hasParam("file"))
+//     {
+//         request->send(400, "text/plain", "Request does not contain file parameter.");
+//         return;
+//     }
+
+//     AsyncWebParameter *p = request->getParam("file");
+//     String path = p->value(); // Get the file path from request parameters
+
+//     File file = SD.open(path, FILE_READ);
+//     if (!file)
+//     {
+//         request->send(404, "text/plain", "File not found");
+//         file.close();
+//         return;
+//     }
+
+//     if (path.endsWith(".json"))
+//     {
+//         String fileContent = "";
+//         while (file.available())
+//         {
+//             fileContent += char(file.read());
+//         }
+
+//         // Adjust the form action and ensure correct path handling
+//         String html = "<form action='/edit' method='POST'>";
+//         html += "<input type='hidden' name='path' value='" + urlEncode(path) + "'>"; // URL encode the path to ensure it is correctly interpreted by the browser
+//         html += "<textarea name='content' style='width:100%;height:200px;'>" + fileContent + "</textarea>";
+//         html += "<button type='submit'>Save</button>";
+//         html += "</form>";
+//         request->send(200, "text/html", html);
+//     }
+//     else
+//     {
+//         request->send(200, "text/plain", "File format not supported for editing.");
+//     }
+//     file.close();
+// }
+
+// void handleNotFound()
+// {
+//     // You can add custom logic to handle different cases of not found
+//     String path = server.uri();
+
+//     // Attempt to handle file reading if the path looks like a file request
+//     if (path.startsWith("/sd/") || path.endsWith(".json"))
+//     {                     // Customize this condition based on your file structure
+//         handleFileRead(); // Attempt to handle as file read
+//     }
+//     else
+//     {
+//         // If it does not seem to be a file access attempt, handle as a general 404 not found
+//         Serial.print("Unmatched request: ");
+//         Serial.println(path);
+//         server.send(404, "text/plain", "404: Not Found");
+//     }
+// }
+
+// void handleEdit()
+// {
+//     String path = server.arg("path"); // This should give the correct path e.g., "/sd/expSetup.json"
+//     File file = SD.open(path, FILE_WRITE);
+//     if (!file)
+//     {
+//         server.send(500, "text/plain", "Failed to open file for writing");
+//         return;
+//     }
+//     String content = server.arg("content");
+//     file.println(content);
+//     file.close();
+//     server.send(200, "text/plain", "File saved successfully");
+// }
+
+void handleFileAccess(AsyncWebServerRequest *request)
 {
-    String path = server.uri();
-    File file = SD.open(path, FILE_READ);
-    if (!file)
+    if (!request->hasParam("file"))
     {
-        server.send(404, "text/plain", "File not found");
+        request->send(400, "text/plain", "Bad Request - No file specified");
         return;
     }
-    if (path.endsWith(".json"))
+
+    AsyncWebParameter *p = request->getParam("file");
+    String filePath = p->value();
+
+    if (filePath.endsWith(".json"))
     {
+        // Handle JSON file by reading and preparing for editing
+        File file = SD.open(filePath, FILE_READ);
+        if (!file)
+        {
+            request->send(404, "text/plain", "File not found");
+            return;
+        }
+
         String fileContent = "";
         while (file.available())
         {
             fileContent += char(file.read());
         }
-        // Adjust the form action and ensure correct path handling
-        String html = "<form action='/edit' method='POST'>";
-        html += "<input type='hidden' name='path' value='" + path + "'>"; // Ensure this carries the correct path
-        html += "<textarea name='content' style='width:100%;height:200px;'>" + fileContent + "</textarea>";
-        html += "<button type='submit'>Save</button>";
-        html += "</form>";
-        server.send(200, "text/html", html);
-    }
-    else
-    {
-        server.send(200, "text/plain", "File format not supported for editing.");
-    }
-    file.close();
-}
+        file.close();
 
-void handleNotFound()
-{
-    // You can add custom logic to handle different cases of not found
-    String path = server.uri();
-
-    // Attempt to handle file reading if the path looks like a file request
-    if (path.startsWith("/sd/") || path.endsWith(".json"))
-    {                     // Customize this condition based on your file structure
-        handleFileRead(); // Attempt to handle as file read
-    }
-    else
-    {
-        // If it does not seem to be a file access attempt, handle as a general 404 not found
-        Serial.print("Unmatched request: ");
-        Serial.println(path);
-        server.send(404, "text/plain", "404: Not Found");
-    }
-}
-
-void handleEdit()
-{
-    String path = server.arg("path"); // This should give the correct path e.g., "/sd/expSetup.json"
-    File file = SD.open(path, FILE_WRITE);
-    if (!file)
-    {
-        server.send(500, "text/plain", "Failed to open file for writing");
-        return;
-    }
-    String content = server.arg("content");
-    file.println(content);
-    file.close();
-    server.send(200, "text/plain", "File saved successfully");
-}
-
-void handleFileDownload()
-{
-    if (server.hasArg("file"))
-    {
-        String path = server.arg("file");
-        File file = SD.open(path, FILE_READ);
-        if (!file)
-        {
-            server.send(404, "text/plain", "File not found");
-            return;
-        }
-
-        if (file.isDirectory())
-        {
-            file.close();
-            server.send(500, "text/plain", "Cannot download a directory");
-            return;
-        }
-
-        String fileName = path.substring(path.lastIndexOf("/") + 1);
-
-        // Check if the file is a JSON file
-        if (fileName.endsWith(".json"))
-        {
-            String fileContent = "";
-            while (file.available())
-            {
-                fileContent += (char)file.read();
-            }
-            file.close();
-
-            String html = "<!DOCTYPE html><html><body>"
-                          "<h1>Edit JSON File</h1>"
-                          "<form action='/save' method='post'>"
-                          "<textarea name='content' rows='20' cols='80'>" +
-                          fileContent + "</textarea><br>"
-                                        "<input type='hidden' name='path' value='" +
-                          path + "'>"
+        String html = "<!DOCTYPE html><html><body>"
+                      "<h1>Edit JSON File</h1>"
+                      "<form action='/save' method='post'>"
+                      "<textarea name='content' rows='20' cols='80'>" +
+                      fileContent + "</textarea><br>"
+                                    "<input type='hidden' name='path' value='" +
+                      filePath + "'>"
                                  "<input type='submit' value='Save Changes'>"
                                  "</form>"
                                  "</body></html>";
-            server.send(200, "text/html", html);
-        }
-        else
-        {
-            // Normal file download process
-            server.setContentLength(file.size());
-            server.sendHeader("Content-Type", "application/octet-stream");
-            server.sendHeader("Content-Disposition", "attachment; filename=\"" + fileName + "\"");
-            server.send(200, "application/octet-stream", ""); // Sends headers
-            WiFiClient client = server.client();
-
-            byte buffer[128];
-            while (file.available())
-            {
-                int l = file.read(buffer, 128);
-                client.write(buffer, l);
-            }
-            file.close();
-        }
+        request->send(200, "text/html", html);
     }
     else
     {
-        server.send(400, "text/plain", "Bad Request");
+        // Handle other file types by offering a download
+        File file = SD.open(filePath, FILE_READ);
+        if (!file)
+        {
+            request->send(404, "text/plain", "File not found");
+            return;
+        }
+
+        request->send(SD, filePath, "application/octet-stream", true);
+        file.close();
     }
 }
 
+void handleEdit(AsyncWebServerRequest *request)
+{
+    // Check if both required parameters are present
+    if (!request->hasParam("path", true) || !request->hasParam("content", true))
+    {
+        request->send(400, "text/plain", "Missing data");
+        return;
+    }
+
+    AsyncWebParameter *pPath = request->getParam("path", true);
+    AsyncWebParameter *pContent = request->getParam("content", true);
+
+    String path = pPath->value();
+    String content = pContent->value();
+
+    // Open the file for writing
+    File file = SD.open(path, FILE_WRITE);
+    if (!file)
+    {
+        request->send(500, "text/plain", "Failed to open file for writing");
+        return;
+    }
+
+    // Write the content to the file
+    file.print(content); // Using print instead of println to avoid extra new line at the end
+    file.close();
+
+    String html = "<!DOCTYPE html><html><head><title>Save Successful</title></head><body>"
+                  "<h1>File saved successfully</h1>"
+                  "<p><a href='/files'>Return to File List</a></p>" // Link back to the file list
+                  "</body></html>";
+
+    // Send a response back to the client
+    request->send(200, "text/plain", html);
+}
+
+// void handleFileDownload()
+// {
+//     if (server.hasArg("file"))
+//     {
+//         String path = server.arg("file");
+//         File file = SD.open(path, FILE_READ);
+//         if (!file)
+//         {
+//             server.send(404, "text/plain", "File not found");
+//             return;
+//         }
+
+//         if (file.isDirectory())
+//         {
+//             file.close();
+//             server.send(500, "text/plain", "Cannot download a directory");
+//             return;
+//         }
+
+//         String fileName = path.substring(path.lastIndexOf("/") + 1);
+
+//         // Check if the file is a JSON file
+//         if (fileName.endsWith(".json"))
+//         {
+//             String fileContent = "";
+//             while (file.available())
+//             {
+//                 fileContent += (char)file.read();
+//             }
+//             file.close();
+
+//             String html = "<!DOCTYPE html><html><body>"
+//                           "<h1>Edit JSON File</h1>"
+//                           "<form action='/save' method='post'>"
+//                           "<textarea name='content' rows='20' cols='80'>" +
+//                           fileContent + "</textarea><br>"
+//                                         "<input type='hidden' name='path' value='" +
+//                           path + "'>"
+//                                  "<input type='submit' value='Save Changes'>"
+//                                  "</form>"
+//                                  "</body></html>";
+//             server.send(200, "text/html", html);
+//         }
+//         else
+//         {
+//             // Normal file download process
+//             server.setContentLength(file.size());
+//             server.sendHeader("Content-Type", "application/octet-stream");
+//             server.sendHeader("Content-Disposition", "attachment; filename=\"" + fileName + "\"");
+//             server.send(200, "application/octet-stream", ""); // Sends headers
+//             WiFiClient client = server.client();
+
+//             byte buffer[128];
+//             while (file.available())
+//             {
+//                 int l = file.read(buffer, 128);
+//                 client.write(buffer, l);
+//             }
+//             file.close();
+//         }
+//     }
+//     else
+//     {
+//         server.send(400, "text/plain", "Bad Request");
+//     }
+// }
+
 void serverSetup()
 {
-    server.on("/", HTTP_GET, handleRoot);
-    server.on("/edit", HTTP_POST, handleEdit);
+
+    server.on("/home", HTTP_GET, handleHomePage);
+    server.on("/", HTTP_GET, handleFS);
+    // server.on("/readFile", HTTP_GET, handleFileRead);
+    // server.on("/edit", HTTP_POST, handleEdit);
     server.on("/save", HTTP_POST, handleEdit);
-    server.on("/download", HTTP_GET, handleFileDownload);
-    server.onNotFound(handleNotFound);
+    server.on("/download", HTTP_GET, handleFileAccess);
+    // server.onNotFound(handleNotFound);
     server.begin();
 }
 
@@ -417,7 +636,9 @@ void wifiCheckTask(void *pvParameters)
             if (WiFi.status() == WL_CONNECTED)
             {
                 ArduinoOTA.handle();
-                server.handleClient();
+
+                // server.handleClient(); // conventional webserver
+
                 //   updateLocalTime(); // Update time every minute if background WIFI managed
                 //   fbKeepAlive();
             }

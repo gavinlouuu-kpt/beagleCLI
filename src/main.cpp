@@ -11,7 +11,7 @@
 #include <Hardware.h>
 #include <beagleCLI.h>
 #include <Network.h>
-#include <Firebase_ESP_Client.h>
+// #include <Firebase_ESP_Client.h>
 #include <M5Stack.h>
 #include <exp_setup.h>
 #include <zsrelay.h>
