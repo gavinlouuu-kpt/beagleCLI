@@ -34,6 +34,7 @@ extern std::vector<int> heaterSettings;
 
 // RTOS task handles
 extern TaskHandle_t bmeTaskHandle, adsTaskHandle, expLoopTaskHandle;
+void expTask();
 
 // Setup file saving
 String setupSave(int setup_tracker, int repeat_tracker, int channel_tracker, String exp_name);
