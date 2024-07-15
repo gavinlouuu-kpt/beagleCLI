@@ -8,6 +8,7 @@
 #include <Adafruit_ADS1X15.h>
 #include <Adafruit_Sensor.h>
 #include <Adafruit_BME680.h>
+#include <FirebaseJson.h>
 
 void readConfigCMD();
 // void read_number_of_setups();
@@ -36,7 +37,15 @@ extern std::vector<int> heaterSettings;
 extern TaskHandle_t bmeTaskHandle, adsTaskHandle, expLoopTaskHandle;
 void expTask();
 
-// Setup file saving
+// File system functions
+std::vector<int> stringToArray(const std::string &str);
+int getInt(FirebaseJson json, int setup_no, String target);
+String getExpName(FirebaseJson json, int setup_no, String target);
+std::vector<int> getArr(FirebaseJson json, int setup_no, String target);
+int count_setup(String jsonString);
+bool ensureDirectoryExists(String path);
+String incrementFolder(String folderPath);
+String createOrIncrementFolder(String folderPath);
 String setupSave(int setup_tracker, int repeat_tracker, int channel_tracker, String exp_name);
 
 // ADS experiment functions
