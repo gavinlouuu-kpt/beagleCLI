@@ -1,4 +1,4 @@
-#include <chrono>
+// #include <chrono>
 #include <exp_setup.h>
 #include <zsrelay.h>
 #include <FirebaseJson.h>
@@ -10,7 +10,7 @@
 #include <M5Stack.h>
 #include <Arduino.h>
 #include <pinConfig.h>
-
+#include <EXP_CONFIG_KEY.h>
 #include <Adafruit_Sensor.h>
 #include <Adafruit_BME680.h>
 
@@ -35,99 +35,6 @@ volatile unsigned long startTime = 0;
 
 String exp_name = "";
 String currentPath = "";
-
-std::vector<int> stringToArray(const std::string &str)
-{
-    std::vector<int> result;
-    std::stringstream ss(str.substr(1, str.size() - 2)); // Remove the brackets
-    std::string item;
-
-    while (getline(ss, item, ','))
-    {
-        result.push_back(stoi(item));
-    }
-
-    return result;
-}
-
-int getInt(FirebaseJson json, int setup_no, String target)
-{
-    // get item within a setup
-    FirebaseJsonData jsonData;
-    String key = "setup_" + String(setup_no);
-    String full_key = key + target;
-    int result;
-    if (json.get(jsonData, full_key))
-    {
-        json.get(jsonData, full_key);
-        result = String(jsonData.intValue).toInt();
-    }
-    else
-    {
-        Serial.println("Failed to find key: " + target);
-    }
-    return result;
-}
-
-String getExpName(FirebaseJson json, int setup_no, String target)
-{
-    // get item within a setup
-    FirebaseJsonData jsonData;
-    String key = "setup_" + String(setup_no);
-    String full_key = key + target;
-    String result;
-    if (json.get(jsonData, full_key))
-    {
-        json.get(jsonData, full_key);
-        result = jsonData.to<String>().c_str();
-    }
-    else
-    {
-        Serial.println("Failed to find key: " + target);
-    }
-    return result;
-}
-
-std::vector<int> getArr(FirebaseJson json, int setup_no, String target)
-{
-    FirebaseJsonData jsonData;
-    String key = "setup_" + String(setup_no);
-    String full_key = key + target;
-    std::vector<int> result;
-    if (json.get(jsonData, full_key))
-    {
-        json.get(jsonData, full_key);
-        result = stringToArray(jsonData.stringValue.c_str());
-    }
-    else
-    {
-        Serial.println("Failed to find key: " + target);
-    }
-    return result;
-}
-
-int count_setup(String jsonString)
-{
-    size_t setupCount = 0;
-    FirebaseJson json;
-    FirebaseJsonData jsonData;
-    // Serial.println(jsonString);
-    json.setJsonData(jsonString);
-    // Serial.println("Counting Setups");
-
-    // Assuming setups are named 'setup_1', 'setup_2', ..., 'setup_n'
-    for (int i = 1; i <= 10; i++)
-    { // Adjust the upper limit as needed
-        String key = "setup_" + String(i);
-        if (json.get(jsonData, key))
-        {
-            setupCount++;
-        }
-        // Serial.println("Setup count: " + String(setupCount));
-    }
-
-    return setupCount;
-}
 
 int sensorCheck()
 {
@@ -232,9 +139,12 @@ int purgeChannel(int channel)
     }
 }
 
-void exp_loop(FirebaseJson config, int setup_count)
+void exp_loop(FirebaseJson config, int setup_count, TaskHandle_t samplingTask)
 {
     int sensorType = sensorCheck();
+    // split function to accomodate fast and full ADS
+    // now task type is decided by TaskHandle instead of dynamic sensorType detection
+
     purgeAll();
 
     std::vector<uint8_t> pump_on = switchCommand(1, pump_relay, 1);
@@ -244,13 +154,13 @@ void exp_loop(FirebaseJson config, int setup_count)
     for (int i = 1; i <= setup_count; i++)
     {
         setup_tracker = i;
-        exp_name = getExpName(config, i, "/exp_name");
-        heaterSettings = getArr(config, i, "/heater_settings");
-        heatingTime = getInt(config, i, "/heating_time(ms)");
-        int exp_time = getInt(config, i, "/exp_time(ms)");
-        int duration = getInt(config, i, "/duration(s)") * 1000;
-        int repeat = getInt(config, i, "/repeat");
-        std::vector<int> channels = getArr(config, i, "/channel");
+        exp_name = getExpName(config, i, EXP_NAME);
+        heaterSettings = getArr(config, i, HEATER_SETTING);
+        heatingTime = getInt(config, i, HEATING_TIME);
+        int exp_time = getInt(config, i, EXP_TIME);
+        int duration = getInt(config, i, EXPOSE_DURATION) * 1000;
+        int repeat = getInt(config, i, REPEAT);
+        std::vector<int> channels = getArr(config, i, CHANNEL);
 
         if (duration == 0 || repeat == 0 || channels.size() == 0)
         {
@@ -269,8 +179,9 @@ void exp_loop(FirebaseJson config, int setup_count)
                 startTime = millis();
                 channel_tracker = cur_channel;
 
-                // Notify the ADS sampling task to start data acquisition
-                xTaskNotifyGive(adsTaskHandle);
+                // Notify the sampling task to start data acquisition
+                // xTaskNotifyGive(adsTaskHandle);
+                xTaskNotifyGive(samplingTask);
 
                 Serial.println("Running experiment for channel: " + String(cur_channel));
                 std::vector<uint8_t> on_command = switchCommand(1, cur_channel, 1);
@@ -304,7 +215,8 @@ void exp_loop(FirebaseJson config, int setup_count)
                 }
 
                 // Notify the ADS sampling task to save data
-                xTaskNotify(adsTaskHandle, 0, eIncrement);
+                // xTaskNotify(adsTaskHandle, 0, eIncrement);
+                xTaskNotify(samplingTask, 0, eIncrement);
 
                 // Wait for the ADS sampling task to signal completion
                 ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
@@ -327,24 +239,32 @@ void exp_loop(FirebaseJson config, int setup_count)
     last_setup_tracker = -1;
 }
 
-void exp_build()
+void exp_build(TaskHandle_t taskHandle)
 {
     // File name for the JSON configuration
-    const char *filename = "/expSetup.json";
+    const char *filename = SETUP_NAME;
     String configData;
     M5_SD_JSON(filename, configData);
     FirebaseJson json;
     json.setJsonData(configData);
     int setupCount = count_setup(configData);
     // Serial.println("Number of setups: " + String(setupCount));
-    exp_loop(json, setupCount);
+    exp_loop(json, setupCount, taskHandle);
 }
 
 void exp_start(void *pvParameters)
 {
+    // adsTaskHandle = all ads channels
     expLoopTaskHandle = xTaskGetCurrentTaskHandle();
-    exp_build();
-    vTaskDelete(NULL);
+    exp_build(adsTaskHandle);
+    vTaskDelete(NULL); // should i delete by task handle?
+}
+
+void exp_fast(void *pvParameters)
+{
+    expLoopTaskHandle = xTaskGetCurrentTaskHandle();
+    exp_build(adsTaskHandle);
+    vTaskDelete(NULL); // should i delete by task handle?
 }
 
 void expTask()
@@ -410,101 +330,6 @@ void displayMap(std::unordered_map<int, std::vector<std::pair<unsigned long, uin
         }
     }
     Serial.println("Data in object printed");
-}
-
-bool ensureDirectoryExists(String path)
-{
-    if (!SD.exists(path))
-    {
-        if (SD.mkdir(path.c_str()))
-        {
-            Serial.println("Directory created: " + path);
-            return true;
-        }
-        else
-        {
-            Serial.println("Failed to create directory: " + path);
-            return false;
-        }
-    }
-    return true;
-}
-
-String incrementFolder(String folderPath)
-{
-    int underscoreIndex = folderPath.lastIndexOf('_');
-    int lastNumber = 0;
-    String basePart = folderPath;
-
-    // Check if the substring after the last underscore can be converted to a number
-    if (underscoreIndex != -1 && underscoreIndex < folderPath.length() - 1)
-    {
-        String numPart = folderPath.substring(underscoreIndex + 1);
-        if (numPart.toInt() != 0 || numPart == "0")
-        { // Checks if conversion was successful or is "0"
-            lastNumber = numPart.toInt();
-            basePart = folderPath.substring(0, underscoreIndex); // Adjust the base part to exclude the number
-        }
-    }
-
-    // Increment and create a new folder name with the updated number
-    String newPath;
-    do
-    {
-        newPath = basePart + "_" + (++lastNumber);
-    } while (SD.exists(newPath));
-
-    if (SD.mkdir(newPath.c_str()))
-    {
-        Serial.println("New directory created: " + newPath);
-    }
-    else
-    {
-        Serial.println("Failed to create directory: " + newPath);
-    }
-    return newPath;
-}
-
-String createOrIncrementFolder(String folderPath)
-{
-    if (!ensureDirectoryExists(folderPath))
-    {
-        Serial.println("Base directory does not exist and could not be created.");
-        return "";
-    }
-    return incrementFolder(folderPath);
-}
-
-String setupSave(int setup_tracker, int repeat_tracker, int channel_tracker, String exp_name)
-{
-    struct tm timeinfo;
-    if (!getLocalTime(&timeinfo))
-    {
-        Serial.println("Failed to obtain time");
-        return "";
-    }
-    char today[11];
-    strftime(today, sizeof(today), "%Y_%m_%d", &timeinfo);
-    char currentTime[9];
-    strftime(currentTime, sizeof(currentTime), "%H_%M_%S", &timeinfo);
-
-    String baseDir = "/" + String(today);
-    String expDir = baseDir + "/" + exp_name;
-
-    if (!ensureDirectoryExists(baseDir) || !ensureDirectoryExists(expDir))
-    {
-        Serial.println("Failed to ensure directories exist.");
-        return "";
-    }
-
-    if (setup_tracker != last_setup_tracker)
-    {
-        currentPath = createOrIncrementFolder(expDir);
-        last_setup_tracker = setup_tracker;
-    }
-
-    String uniqueFilename = currentPath + "/" + String(currentTime) + "s" + String(setup_tracker) + "c" + String(channel_tracker) + "r" + String(repeat_tracker) + ".csv";
-    return uniqueFilename;
 }
 
 void onPump()
