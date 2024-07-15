@@ -7,7 +7,7 @@
 #include <pinConfig.h>
 #include <CircularBuffer.hpp>
 
-constexpr size_t bufferSize = 1000;
+constexpr size_t bufferSize = 5000;
 // CircularBuffer<std::pair<unsigned long, int16_t>, bufferSize> ADSBuffer;
 
 struct SettingData
@@ -52,18 +52,21 @@ void UOM_ADS_continuous(CircularBuffer<SettingData, bufferSize> &buffer, const s
         buffer.push(data); // Push structured data to circular buffer
     }
 }
-
+String continuousADS_Header = "Setting,Timestamp,Value";
 void saveADSDataFromBuffer(const CircularBuffer<SettingData, bufferSize> &buffer, const String &filename)
 {
-    File myFile = SD.open(filename, FILE_WRITE);
+    File myFile = SD.open(filename, FILE_APPEND); // Change here to FILE_APPEND
     if (!myFile)
     {
         Serial.println("Error opening file for writing");
         return;
     }
 
-    // Write header
-    myFile.println("Setting,Timestamp,Value");
+    // The header should only be written if the file was newly created or is empty
+    if (myFile.size() == 0)
+    {
+        myFile.println(continuousADS_Header); // Write header only if file is empty
+    }
 
     // Dump all buffer data to file
     for (size_t i = 0; i < buffer.size(); i++)
@@ -73,7 +76,7 @@ void saveADSDataFromBuffer(const CircularBuffer<SettingData, bufferSize> &buffer
     }
 
     myFile.close();
-    Serial.println("Data saved to file: " + filename);
+    Serial.println("Data dumped to: " + filename);
 }
 
 // void UOM_ADS_continuous(std::unordered_map<int, std::vector<std::pair<unsigned long, int16_t>>> &ADS_continuous, std::vector<int> heaterSettings, int heatingTime)
@@ -166,6 +169,7 @@ void sampleADScontinuous(void *pvParameters)
         // Wait for a notification to start data acquisition
         ulTaskNotifyTake(pdTRUE, portMAX_DELAY); // Start of a new experiment
         ADSBuffer.clear();
+        String filename = setupSave(setup_tracker, repeat_tracker, channel_tracker, exp_name);
 
         while (true)
         {
@@ -178,7 +182,7 @@ void sampleADScontinuous(void *pvParameters)
             // Check if it's time to save data
             if (millis() - lastSaveTime >= saveInterval || ADSBuffer.isFull())
             {
-                String filename = setupSave(setup_tracker, repeat_tracker, channel_tracker, exp_name);
+
                 saveADSDataFromBuffer(ADSBuffer, filename);
                 lastSaveTime = millis(); // Reset the timer after saving
                 ADSBuffer.clear();       // Optionally clear buffer after saving if appropriate
@@ -194,7 +198,7 @@ void sampleADScontinuous(void *pvParameters)
         // Optionally perform a final save if there's data left in the buffer
         if (!ADSBuffer.isEmpty())
         {
-            String filename = setupSave(setup_tracker, repeat_tracker, channel_tracker, exp_name);
+            // String filename = setupSave(setup_tracker, repeat_tracker, channel_tracker, exp_name);
             saveADSDataFromBuffer(ADSBuffer, filename);
             ADSBuffer.clear(); // Clear buffer after final saving
         }
