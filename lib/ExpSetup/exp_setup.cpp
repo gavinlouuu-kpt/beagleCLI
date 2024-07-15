@@ -21,7 +21,7 @@
 
 Adafruit_ADS1115 ads;
 Adafruit_BME680 bme; // I2C
-TaskHandle_t bmeTaskHandle, adsTaskHandle, expLoopTaskHandle;
+TaskHandle_t bmeTaskHandle, adsTaskHandle, adsFastTaskHandle, expLoopTaskHandle;
 
 volatile int heatingTime;
 std::vector<int> heaterSettings;
@@ -63,6 +63,15 @@ int sensorCheck()
     return -1;
 }
 
+void deleteTask(TaskHandle_t *taskHandle)
+{
+    if (taskHandle != NULL && *taskHandle != NULL)
+    {
+        vTaskDelete(*taskHandle);
+        *taskHandle = NULL; // Set the handle to NULL after deleting the task
+    }
+}
+
 void deleteTaskBasedOnType(SamplingType samplingType)
 {
     switch (samplingType)
@@ -99,26 +108,49 @@ void deleteTaskBasedOnType(SamplingType samplingType)
 
 TaskHandle_t samplingMethod(SamplingType samplingType)
 {
+    TaskHandle_t taskHandle = NULL;
+
     if (samplingType == SamplingType::ADS_DETAIL)
     {
         ads.begin(ADSi2c);
         ads.setDataRate(RATE_ADS1115_860SPS);
         ads.setGain(GAIN_ONE);
-        ADSsampleTask();
-
-        return adsTaskHandle;
+        ADSsampleTask(&taskHandle); // Pass the address of the taskHandle
     }
     else if (samplingType == SamplingType::ADS)
     {
         ads.begin(ADSi2c);
         ads.setDataRate(RATE_ADS1115_860SPS);
         ads.setGain(GAIN_ONE);
-        // ADSsampleTask();
-
-        return adsTaskHandle;
+        ads.startADCReading(ADS1X15_REG_CONFIG_MUX_SINGLE_0, true); // Continuous mode
+        adsFastSampleTask(&taskHandle);                             // Pass the address of the taskHandle
     }
-    return NULL;
+
+    return taskHandle; // Will be NULL if neither condition is met
 }
+
+// TaskHandle_t samplingMethod(SamplingType samplingType)
+// {
+//     if (samplingType == SamplingType::ADS_DETAIL)
+//     {
+//         ads.begin(ADSi2c);
+//         ads.setDataRate(RATE_ADS1115_860SPS);
+//         ads.setGain(GAIN_ONE);
+//         ADSsampleTask();
+
+//         return adsTaskHandle;
+//     }
+//     else if (samplingType == SamplingType::ADS)
+//     {
+//         ads.begin(ADSi2c);
+//         ads.setDataRate(RATE_ADS1115_860SPS);
+//         ads.setGain(GAIN_ONE);
+//         adsFastSampleTask();
+
+//         return adsFastTaskHandle;
+//     }
+//     return NULL;
+// }
 
 int serial_delay = 15;
 
@@ -294,7 +326,9 @@ void exp_loop(FirebaseJson config, int setup_count, SamplingType samplingType)
             }
         }
     }
-    deleteTaskBasedOnType(samplingType);
+    // deleteTaskBasedOnType(samplingType);
+    Serial.println("Deleting task");
+    deleteTask(&samplingTask);
     relay_off();
 
     Serial.println("END of LOOP");

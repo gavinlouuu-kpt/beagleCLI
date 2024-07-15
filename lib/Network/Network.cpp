@@ -127,19 +127,29 @@ void listSDdir(AsyncWebServerRequest *request, const String &rawPath)
         }
         file = dir.openNextFile();
     }
-    html += "</ul>"
-            "<p><a href='/invokeFunction'>Invoke Special Function</a></p>" // Add a link to invoke the function
-            "<a href='/?dir=/'>Home</a></body></html>";
+    html += "</ul>";
+    String functionKeysHTML = functionKeys();
+    html += functionKeysHTML;
+    // "<p><a href='/invokeFunction'>Detailed ADS Sampling</a></p>" // Add a link to invoke the function
+    // another link to invoke another function
     request->send(200, "text/html", html);
 }
 
-void handleSpecialFunction(AsyncWebServerRequest *request)
+void handleDetailADSFunction(AsyncWebServerRequest *request)
 {
-    // Perform some actions here, for example, reset counters, read sensors, etc.
-    Serial.println("Special function invoked!");
     startExperimentTask(SamplingType::ADS_DETAIL);
+    request->redirect("/"); // Redirect back to home after action
+}
 
-    // You can redirect back to the main page or just send a confirmation message
+void handleADSFunction(AsyncWebServerRequest *request)
+{
+    startExperimentTask(SamplingType::ADS);
+    request->redirect("/"); // Redirect back to home after action
+}
+
+void handleBMEFunction(AsyncWebServerRequest *request)
+{
+    startExperimentTask(SamplingType::BME680);
     request->redirect("/"); // Redirect back to home after action
 }
 
@@ -258,12 +268,27 @@ void handleEdit(AsyncWebServerRequest *request)
     request->send(200, "text/plain", html);
 }
 
+String functionKeys()
+{
+    String html =
+        "<ul>"
+        "<li><a href='/handleDetailADSFunction'>Detail ADS Function</a></li>"
+        "<li><a href='/handleADSFunction'>ADS Function</a></li>"
+        "<li><a href='/handleBMEFunction'>BME Function</a></li>"
+        // Add more links as needed
+        "</ul>"
+        "<a href='/?dir=/'>Home</a></body></html>";
+    return html;
+}
+
 void serverSetup()
 {
     server.on("/", HTTP_GET, handleFS);
     server.on("/save", HTTP_POST, handleEdit);
     server.on("/download", HTTP_GET, handleFileAccess);
-    server.on("/invokeFunction", HTTP_GET, handleSpecialFunction);
+    server.on("/handleDetailADSFunction", HTTP_GET, handleDetailADSFunction);
+    server.on("/handleADSFunction", HTTP_GET, handleADSFunction);
+    server.on("/handleBMEFunction", HTTP_GET, handleBMEFunction);
     server.onNotFound(handleNotFound);
     server.begin();
 }

@@ -25,7 +25,7 @@ int UOM_sensorADS(std::unordered_map<int, std::vector<std::pair<unsigned long, s
 
 void UOM_ADS_continuous(std::unordered_map<int, std::vector<std::pair<unsigned long, int16_t>>> &ADS_continuous, std::vector<int> heaterSettings, int heatingTime)
 {
-    // set continuous mode
+    // implement circular buffer
     for (int setting : heaterSettings)
     {
         ledcWrite(PWM_Heater, setting);
@@ -83,7 +83,7 @@ void sampleADScontinuous(void *pvParameters)
         while (true)
         {
 
-            ads.startADCReading(ADS1X15_REG_CONFIG_MUX_SINGLE_0, true); // Continuous mode
+            // ads.startADCReading(ADS1X15_REG_CONFIG_MUX_SINGLE_0, true); // Continuous mode
             UOM_ADS_continuous(ADS_continuous, heaterSettings, heatingTime);
             Serial.print("*");
 
@@ -152,15 +152,50 @@ void saveADScontinuous(std::unordered_map<int, std::vector<std::pair<unsigned lo
     ADS_continuous.clear(); // Clear the data after saving
 }
 
-void ADSsampleTask()
+// void ADSsampleTask()
+// {
+//     xTaskCreate(
+//         sampleADS,       /* Task function. */
+//         "ads_start",     /* String with name of task. */
+//         20480,           /* Stack size in bytes. */
+//         NULL,            /* Parameter passed as input of the task */
+//         1,               /* Priority of the task. */
+//         &adsTaskHandle); /* Task handle. */
+// }
+
+// void adsFastSampleTask()
+// {
+//     xTaskCreate(
+//         sampleADScontinuous, /* Task function. */
+//         "ads_start",         /* String with name of task. */
+//         20480,               /* Stack size in bytes. */
+//         NULL,                /* Parameter passed as input of the task */
+//         1,                   /* Priority of the task. */
+//         &adsFastTaskHandle); /* Task handle. */
+// }
+
+void ADSsampleTask(TaskHandle_t *taskHandle)
 {
     xTaskCreate(
-        sampleADS,       /* Task function. */
-        "ads_start",     /* String with name of task. */
-        20480,           /* Stack size in bytes. */
-        NULL,            /* Parameter passed as input of the task */
-        1,               /* Priority of the task. */
-        &adsTaskHandle); /* Task handle. */
+        sampleADS,         // Function that the task will run
+        "ADS Sample Task", // Name of the task
+        10240,             // Stack size
+        NULL,              // Parameters to pass (can be modified as needed)
+        1,                 // Task priority
+        taskHandle         // Pointer to handle
+    );
+}
+
+void adsFastSampleTask(TaskHandle_t *taskHandle)
+{
+    xTaskCreate(
+        sampleADScontinuous,    // Function that the task will run
+        "ADS Fast Sample Task", // Name of the task
+        20240,                  // Stack size
+        NULL,                   // Parameters to pass (can be modified as needed)
+        1,                      // Task priority
+        taskHandle              // Pointer to handle
+    );
 }
 
 // buffer based saving method

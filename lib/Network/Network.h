@@ -10,7 +10,9 @@ void networkCheck();
 void backgroundWIFI();
 
 // Webserver
-void handleRoot();
+// void handleRoot();
+String functionKeys();
+void serverSetup();
 
 class WiFiManager
 {
