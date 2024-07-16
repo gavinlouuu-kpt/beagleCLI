@@ -107,9 +107,6 @@ void sampleADS(void *pvParameters)
             UOM_sensorADS(ADS_sensorData, heaterSettings, heatingTime);
             Serial.print("-");
 
-            ads.startADCReading(ADS1X15_REG_CONFIG_MUX_SINGLE_0, true); // Continuous mode
-            // UOM_ADS_continuous(ADS_continuous, heaterSettings, heatingTime);
-
             // Check if there's a notification to save data
             if (ulTaskNotifyTake(pdTRUE, 0)) // Check without waiting
             {
