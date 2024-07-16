@@ -265,7 +265,7 @@ void exp_loop(FirebaseJson config, int setup_count, SamplingType samplingType)
         for (int j = 0; j < repeat; j++)
         {
             repeat_tracker = j;
-            Serial.println("Running experiment for setup: " + String(i) + " repeat: " + String(j));
+            Serial.println("SETUP: Running experiment for setup: " + String(i) + " repeat: " + String(j));
 
             for (int cur_channel : channels)
             {
@@ -278,16 +278,16 @@ void exp_loop(FirebaseJson config, int setup_count, SamplingType samplingType)
 
                 if (samplingTask == NULL)
                 {
-                    Serial.println("Sampling task handle is NULL");
+                    Serial.println("SETUP: Sampling task handle is NULL");
                 }
                 else
                 {
                     xTaskNotifyGive(samplingTask);
-                    Serial.println("Sampling task notified");
+                    Serial.println("SETUP: Sampling task notified");
                 }
                 // xTaskNotifyGive(samplingTask);
 
-                Serial.println("Running experiment for channel: " + String(cur_channel));
+                Serial.println("SETUP: Running experiment for channel: " + String(cur_channel));
                 std::vector<uint8_t> on_command = switchCommand(1, cur_channel, 1);
                 Serial2.write(on_command.data(), on_command.size());
 
@@ -321,20 +321,20 @@ void exp_loop(FirebaseJson config, int setup_count, SamplingType samplingType)
                 // Notify the ADS sampling task to save data
                 // xTaskNotify(adsTaskHandle, 0, eIncrement);
                 xTaskNotify(samplingTask, 0, eIncrement);
-                Serial.println("Sampling task notified for saving data");
+                Serial.println("SETUP: Sampling task notified for saving data");
 
                 // Wait for the ADS sampling task to signal completion
-                Serial.println("Waiting for sampling task to complete");
+                Serial.println("SETUP: Waiting for sampling task to complete");
                 ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
             }
         }
     }
     // deleteTaskBasedOnType(samplingType);
-    Serial.println("Deleting task");
+    Serial.println("SETUP: Deleting task");
     deleteTask(&samplingTask);
     relay_off();
 
-    Serial.println("END of LOOP");
+    Serial.println("SETUP: END of LOOP");
     startTime = 0;
     last_setup_tracker = -1;
 }

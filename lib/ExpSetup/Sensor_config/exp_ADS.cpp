@@ -165,7 +165,7 @@ void sampleADScontinuous(void *pvParameters)
     for (;;)
     {
         // Wait for a notification to start data acquisition
-        Serial.println("Waiting for notification to start data acquisition.");
+        Serial.println("RUNNER: Waiting for notification to start data acquisition.");
         ulTaskNotifyTake(pdTRUE, portMAX_DELAY); // Start of a new experiment
         ADSBuffer.clear();
         String filename = setupSave(setup_tracker, repeat_tracker, channel_tracker, exp_name);
@@ -190,7 +190,7 @@ void sampleADScontinuous(void *pvParameters)
             // Check for a stop notification without waiting
             if (ulTaskNotifyTake(pdTRUE, 0))
             {
-                Serial.println("Data saving notification received.");
+                Serial.println("RUNNER: Data saving notification received.");
                 break; // Stop data acquisition on notification
             }
         }
@@ -204,10 +204,10 @@ void sampleADScontinuous(void *pvParameters)
         }
 
         // Notify that this round of data collection is complete
-        Serial.println("Data saving complete.");
+        Serial.println("RUNNER: Data saving complete.");
         xTaskNotifyGive(expLoopTaskHandle);
         // Block until the next run or termination
-        Serial.println("Waiting for next experiment or termination.");
+        Serial.println("RUNNER: Waiting for next experiment or termination.");
         ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
     }
 }
