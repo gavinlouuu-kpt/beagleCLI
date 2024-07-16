@@ -40,10 +40,12 @@ void switchBuffers()
 
 void dataSaveTask(void *parameters)
 {
+    String filename = *(String *)parameters; // Correct casting
+
     for (;;)
     {
         ulTaskNotifyTake(pdTRUE, portMAX_DELAY); // Wait for notification to save data
-        saveADSDataFromBuffer(*saveBuffer, (String)parameters);
+        saveADSDataFromBuffer(*saveBuffer, filename);
         saveBuffer->clear();
     }
 }
