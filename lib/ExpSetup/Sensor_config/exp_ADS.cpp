@@ -7,6 +7,8 @@
 #include <pinConfig.h>
 #include <CircularBuffer.hpp>
 
+String continuousADS_Header = "Setting,Timestamp,Value";
+
 constexpr size_t bufferSize = 5000;
 
 struct SettingData
@@ -239,7 +241,6 @@ void saveADSDataFromBuffer(const CircularBuffer<SettingData, bufferSize> &buffer
 //     }
 // }
 
-// String continuousADS_Header = "Setting,Timestamp,Value";
 // void saveADSDataFromBuffer(const CircularBuffer<SettingData, bufferSize> &buffer, const String &filename)
 // {
 //     File myFile = SD.open(filename, FILE_APPEND); // Change here to FILE_APPEND
