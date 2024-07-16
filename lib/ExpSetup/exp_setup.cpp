@@ -283,6 +283,7 @@ void exp_loop(FirebaseJson config, int setup_count, SamplingType samplingType)
                 else
                 {
                     xTaskNotifyGive(samplingTask);
+                    Serial.println("Sampling task notified");
                 }
                 // xTaskNotifyGive(samplingTask);
 
@@ -320,8 +321,10 @@ void exp_loop(FirebaseJson config, int setup_count, SamplingType samplingType)
                 // Notify the ADS sampling task to save data
                 // xTaskNotify(adsTaskHandle, 0, eIncrement);
                 xTaskNotify(samplingTask, 0, eIncrement);
+                Serial.println("Sampling task notified for saving data");
 
                 // Wait for the ADS sampling task to signal completion
+                Serial.println("Waiting for sampling task to complete");
                 ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
             }
         }
@@ -389,6 +392,8 @@ void exp_generic(void *pvParameters)
 
     // Obtain and update the global task handle
     expLoopTaskHandle = xTaskGetCurrentTaskHandle();
+    Serial.print("Task handle obtained: ");
+    Serial.println((uintptr_t)expLoopTaskHandle, HEX);
 
     // Build experiment based on the sampling type
     exp_build(samplingType);
