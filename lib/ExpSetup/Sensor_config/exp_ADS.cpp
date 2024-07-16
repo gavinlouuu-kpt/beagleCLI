@@ -78,7 +78,9 @@ void dataSaveTask(void *parameters)
 
 void adsFastSampleTask(TaskHandle_t *taskHandle)
 {
+    Serial.println("Creating data save Task");
     xTaskCreate(dataSaveTask, "Data Save Task", 4096, NULL, 1, &dataSaveTaskHandle);
+    Serial.println("Creating data sampling Task");
     xTaskCreate(sampleADScontinuous, "ADS Fast Sample Task", 4096, NULL, 1, taskHandle);
 }
 
@@ -141,8 +143,6 @@ void sampleADScontinuous(void *pvParameters)
         xTaskNotifyGive(expLoopTaskHandle);
     }
 }
-
-
 
 // // previous working code
 // constexpr size_t bufferSize = 5000;
