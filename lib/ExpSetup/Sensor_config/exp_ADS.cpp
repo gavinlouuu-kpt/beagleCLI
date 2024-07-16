@@ -110,7 +110,7 @@ void sampleADS(void *pvParameters)
             // Check if there's a notification to save data
             if (ulTaskNotifyTake(pdTRUE, 0)) // Check without waiting
             {
-                break;
+                Serial.println("Data saving notification received.") break;
             }
         }
 
