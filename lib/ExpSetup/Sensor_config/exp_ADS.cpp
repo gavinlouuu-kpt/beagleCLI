@@ -208,9 +208,10 @@ void sampleADScontinuous(void *pvParameters)
         Serial.println("RUNNER: Data saving complete. Notifying expLoopTask.");
         xTaskNotifyGive(expLoopTaskHandle);
         // Block until the next run or termination
-        Serial.println("RUNNER: Waiting for next experiment or termination.");
-        ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
-        Serial.println("RUNNER: Received notification to start next experiment.");
+
+        // Serial.println("RUNNER: Waiting for next experiment or termination.");
+        // ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+        // Serial.println("RUNNER: Received notification to start next experiment.");
     }
 }
 
