@@ -326,6 +326,7 @@ void exp_loop(FirebaseJson config, int setup_count, SamplingType samplingType)
                 // Wait for the ADS sampling task to signal completion
                 Serial.println("SETUP: Waiting for sampling task to complete");
                 ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+                Serial.println("SETUP: Received signal from sampling task");
             }
         }
     }
