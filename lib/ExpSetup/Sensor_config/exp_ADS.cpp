@@ -78,6 +78,9 @@ void dataSaveTask(void *parameters)
 
 void adsFastSampleTask(TaskHandle_t *taskHandle)
 {
+    Serial.println("add file name");
+    String filename = setupSave(setup_tracker, repeat_tracker, channel_tracker, exp_name);
+
     Serial.println("Creating data save Task");
     xTaskCreate(dataSaveTask, "Data Save Task", 4096, NULL, 1, &dataSaveTaskHandle);
     Serial.println("Creating data sampling Task");
