@@ -284,7 +284,7 @@ void ADSsampleTask(TaskHandle_t *taskHandle)
     xTaskCreate(
         sampleADS,         // Function that the task will run
         "ADS Sample Task", // Name of the task
-        10240,             // Stack size
+        20240,             // Stack size
         NULL,              // Parameters to pass (can be modified as needed)
         1,                 // Task priority
         taskHandle         // Pointer to handle
