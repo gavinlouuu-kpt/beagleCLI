@@ -8,7 +8,6 @@
 #include <CircularBuffer.hpp>
 
 constexpr size_t bufferSize = 5000;
-// CircularBuffer<std::pair<unsigned long, int16_t>, bufferSize> ADSBuffer;
 
 struct SettingData
 {
@@ -17,23 +16,85 @@ struct SettingData
     int16_t value;
 };
 
-CircularBuffer<SettingData, bufferSize> ADSBuffer;
+// Two buffers for double buffering
+CircularBuffer<SettingData, bufferSize> BufferA;
+CircularBuffer<SettingData, bufferSize> BufferB;
+CircularBuffer<SettingData, bufferSize> *currentBuffer = &BufferA;
+CircularBuffer<SettingData, bufferSize> *saveBuffer = &BufferB;
 
-int UOM_sensorADS(std::unordered_map<int, std::vector<std::pair<unsigned long, std::array<int16_t, 4>>>> &ADS_sensorData, std::vector<int> heaterSettings, int heatingTime)
+TaskHandle_t dataSaveTaskHandle;
+
+void switchBuffers()
 {
-
-    for (int setting : heaterSettings)
+    if (currentBuffer == &BufferA)
     {
-        // Serial.print("+");
-        ledcWrite(PWM_Heater, setting);
-
-        unsigned long timestamp = millis(); // relative timestamp has a resetting bug that needs to be fixed
-        std::array<int16_t, 4> ADSreadings = {ads.readADC_SingleEnded(0), ads.readADC_SingleEnded(1), ads.readADC_SingleEnded(2), ads.readADC_SingleEnded(3)};
-        // ADS_sensorData[setting].push_back(std::make_pair(timestamp, ADSreadings));
-        ADS_sensorData[setting].emplace_back(timestamp, ADSreadings);
+        currentBuffer = &BufferB;
+        saveBuffer = &BufferA;
     }
+    else
+    {
+        currentBuffer = &BufferA;
+        saveBuffer = &BufferB;
+    }
+}
 
-    return 0;
+void dataSaveTask(void *parameters)
+{
+    for (;;)
+    {
+        ulTaskNotifyTake(pdTRUE, portMAX_DELAY); // Wait for notification to save data
+        saveADSDataFromBuffer(*saveBuffer, (String)parameters);
+        saveBuffer->clear();
+    }
+}
+
+void adsFastSampleTask(TaskHandle_t *taskHandle)
+{
+    xTaskCreate(dataSaveTask, "Data Save Task", 4096, NULL, 1, &dataSaveTaskHandle);
+    xTaskCreate(sampleADScontinuous, "ADS Fast Sample Task", 20480, NULL, 1, taskHandle);
+}
+
+void sampleADScontinuous(void *pvParameters)
+{
+    const unsigned long saveInterval = 300000; // 5 minutes in milliseconds
+    unsigned long lastSaveTime = millis();
+
+    for (;;)
+    {
+        Serial.println("RUNNER: Waiting for notification to start data acquisition.");
+        ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+        Serial.println("RUNNER: Start data acquisition.");
+        currentBuffer->clear();
+        String filename = setupSave(setup_tracker, repeat_tracker, channel_tracker, exp_name);
+
+        while (true)
+        {
+            UOM_ADS_continuous(*currentBuffer, heaterSettings, heatingTime);
+            Serial.print("*");
+
+            if (millis() - lastSaveTime >= saveInterval || currentBuffer->isFull())
+            {
+                switchBuffers();                     // Switch the current buffer
+                xTaskNotifyGive(dataSaveTaskHandle); // Notify the data save task
+                lastSaveTime = millis();
+            }
+
+            if (ulTaskNotifyTake(pdTRUE, 0))
+            {
+                Serial.println("RUNNER: Data saving notification received.");
+                break;
+            }
+        }
+
+        if (!currentBuffer->isEmpty())
+        {
+            switchBuffers(); // Ensure all data is in the buffer set for saving
+            xTaskNotifyGive(dataSaveTaskHandle);
+        }
+
+        Serial.println("RUNNER: Data saving complete. Notifying expLoopTask.");
+        xTaskNotifyGive(expLoopTaskHandle);
+    }
 }
 
 void UOM_ADS_continuous(CircularBuffer<SettingData, bufferSize> &buffer, const std::vector<int> &heaterSettings, int heatingTime)
@@ -41,34 +102,32 @@ void UOM_ADS_continuous(CircularBuffer<SettingData, bufferSize> &buffer, const s
     for (int setting : heaterSettings)
     {
         ledcWrite(PWM_Heater, setting);
-        unsigned long timestamp = millis();              // Get current timestamp
-        int16_t result = ads.getLastConversionResults(); // Get sensor reading
+        unsigned long timestamp = millis();
+        int16_t result = ads.getLastConversionResults();
 
-        SettingData data;           // Create a struct instance
-        data.setting = setting;     // Assign the setting
-        data.timestamp = timestamp; // Assign the timestamp
-        data.value = result;        // Assign the sensor result
+        SettingData data;
+        data.setting = setting;
+        data.timestamp = timestamp;
+        data.value = result;
 
-        buffer.push(data); // Push structured data to circular buffer
+        buffer.push(data);
     }
 }
-String continuousADS_Header = "Setting,Timestamp,Value";
+
 void saveADSDataFromBuffer(const CircularBuffer<SettingData, bufferSize> &buffer, const String &filename)
 {
-    File myFile = SD.open(filename, FILE_APPEND); // Change here to FILE_APPEND
+    File myFile = SD.open(filename, FILE_APPEND);
     if (!myFile)
     {
         Serial.println("Error opening file for writing");
         return;
     }
 
-    // The header should only be written if the file was newly created or is empty
     if (myFile.size() == 0)
     {
-        myFile.println(continuousADS_Header); // Write header only if file is empty
+        myFile.println(continuousADS_Header);
     }
 
-    // Dump all buffer data to file
     for (size_t i = 0; i < buffer.size(); i++)
     {
         const SettingData &data = buffer[i];
@@ -79,84 +138,30 @@ void saveADSDataFromBuffer(const CircularBuffer<SettingData, bufferSize> &buffer
     Serial.println("Data dumped to: " + filename);
 }
 
-// void UOM_ADS_continuous(std::unordered_map<int, std::vector<std::pair<unsigned long, int16_t>>> &ADS_continuous, std::vector<int> heaterSettings, int heatingTime)
-// {
-//     // implement circular buffer
-//     for (int setting : heaterSettings)
-//     {
-//         ledcWrite(PWM_Heater, setting);
+// previous working code
+constexpr size_t bufferSize = 5000;
 
-//         unsigned long timestamp = millis(); // relative timestamp has a resetting bug that needs to be fixed
-//         int16_t results = ads.getLastConversionResults();
-//         ADS_continuous[setting].emplace_back(timestamp, results);
-//     }
-// }
-
-void sampleADS(void *pvParameters)
+struct SettingData
 {
-    for (;;)
-    {
-        std::unordered_map<int, std::vector<std::pair<unsigned long, std::array<int16_t, 4>>>> ADS_sensorData;
+    int setting;
+    unsigned long timestamp;
+    int16_t value;
+};
 
-        // Wait for a notification to start data acquisition
-        ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+CircularBuffer<SettingData, bufferSize> ADSBuffer;
 
-        // Perform data acquisition continuously until notified to save data
-        while (true)
-        {
-            UOM_sensorADS(ADS_sensorData, heaterSettings, heatingTime);
-            Serial.print("-");
-
-            // Check if there's a notification to save data
-            if (ulTaskNotifyTake(pdTRUE, 0)) // Check without waiting
-            {
-                Serial.println("Data saving notification received.");
-                break;
-            }
-        }
-
-        // Save the acquired data
-        saveADSData(ADS_sensorData, setup_tracker, repeat_tracker, channel_tracker, exp_name);
-
-        // Notify the exp_loop task that data saving is complete
-        xTaskNotifyGive(expLoopTaskHandle);
-    }
+void adsFastSampleTask(TaskHandle_t *taskHandle)
+{
+    xTaskCreate(
+        sampleADScontinuous,    // Function that the task will run
+        "ADS Fast Sample Task", // Name of the task
+        20240,                  // Stack size
+        NULL,                   // Parameters to pass (can be modified as needed)
+        1,                      // Task priority
+        taskHandle              // Pointer to handle
+    );
 }
 
-// void sampleADScontinuous(void *pvParameters)
-// {
-//     for (;;)
-//     {
-//         // continuous experiment
-//         std::unordered_map<int, std::vector<std::pair<unsigned long, int16_t>>> ADS_continuous;
-
-//         // Wait for a notification to start data acquisition
-//         ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
-
-//         // Perform data acquisition continuously until notified to save data
-//         while (true)
-//         {
-
-//             // ads.startADCReading(ADS1X15_REG_CONFIG_MUX_SINGLE_0, true); // Continuous mode
-//             UOM_ADS_continuous(ADS_continuous, heaterSettings, heatingTime);
-//             Serial.print("*");
-
-//             // Check if there's a notification to save data
-//             if (ulTaskNotifyTake(pdTRUE, 0)) // Check without waiting
-//             {
-//                 break;
-//             }
-//         }
-
-//         // continuous exp
-//         saveADScontinuous(ADS_continuous, setup_tracker, repeat_tracker, channel_tracker, exp_name);
-
-//         // Notify the exp_loop task that data saving is complete
-//         xTaskNotifyGive(expLoopTaskHandle);
-//     }
-// }
-
-// const unsigned long saveInterval = 5000;
 void sampleADScontinuous(void *pvParameters)
 {
     const unsigned long saveInterval = 300000; // 5 minutes in milliseconds
@@ -215,77 +220,51 @@ void sampleADScontinuous(void *pvParameters)
     }
 }
 
-// void saveADScontinuous(std::unordered_map<int, std::vector<std::pair<unsigned long, int16_t>>> &ADS_continuous, int setup_tracker, int repeat_tracker, int channel_tracker, String exp_name)
-// {
+void UOM_ADS_continuous(CircularBuffer<SettingData, bufferSize> &buffer, const std::vector<int> &heaterSettings, int heatingTime)
+{
+    for (int setting : heaterSettings)
+    {
+        ledcWrite(PWM_Heater, setting);
+        unsigned long timestamp = millis();              // Get current timestamp
+        int16_t result = ads.getLastConversionResults(); // Get sensor reading
 
-//     String filename = setupSave(setup_tracker, repeat_tracker, channel_tracker, exp_name);
-//     if (filename == "")
-//     {
-//         Serial.println("Error in setupSave function.");
-//         return;
-//     }
+        SettingData data;           // Create a struct instance
+        data.setting = setting;     // Assign the setting
+        data.timestamp = timestamp; // Assign the timestamp
+        data.value = result;        // Assign the sensor result
 
-//     File myFile = SD.open(filename, FILE_WRITE);
-//     if (!myFile)
-//     {
-//         Serial.println("Error opening file for writing");
-//         return;
-//     }
+        buffer.push(data); // Push structured data to circular buffer
+    }
+}
 
-//     // Start with the CSV header
-//     String buffer = "Setting,Timestamp,Value\n";
+String continuousADS_Header = "Setting,Timestamp,Value";
+void saveADSDataFromBuffer(const CircularBuffer<SettingData, bufferSize> &buffer, const String &filename)
+{
+    File myFile = SD.open(filename, FILE_APPEND); // Change here to FILE_APPEND
+    if (!myFile)
+    {
+        Serial.println("Error opening file for writing");
+        return;
+    }
 
-//     // Accumulate data into the buffer
-//     for (auto &entry : ADS_continuous)
-//     {
-//         int setting = entry.first;
-//         for (auto &data : entry.second)
-//         {
-//             buffer += String(setting) + ",";
-//             buffer += String(data.first) + ",";   // Timestamp
-//             buffer += String(data.second) + "\n"; // Single value for this timestamp
+    // The header should only be written if the file was newly created or is empty
+    if (myFile.size() == 0)
+    {
+        myFile.println(continuousADS_Header); // Write header only if file is empty
+    }
 
-//             // Check if buffer needs to be flushed
-//             if (buffer.length() >= 1024)
-//             { // Choose a suitable size for flushing
-//                 myFile.print(buffer);
-//                 buffer = ""; // Clear the buffer
-//             }
-//         }
-//     }
+    // Dump all buffer data to file
+    for (size_t i = 0; i < buffer.size(); i++)
+    {
+        const SettingData &data = buffer[i];
+        myFile.printf("%d,%lu,%d\n", data.setting, data.timestamp, data.value);
+    }
 
-//     // Flush remaining data in the buffer
-//     if (buffer.length() > 0)
-//     {
-//         myFile.print(buffer);
-//     }
+    myFile.close();
+    Serial.println("Data dumped to: " + filename);
+}
 
-//     Serial.println("Data saved to file: " + filename);
-//     myFile.close();
-//     ADS_continuous.clear(); // Clear the data after saving
-// }
-
-// void ADSsampleTask()
-// {
-//     xTaskCreate(
-//         sampleADS,       /* Task function. */
-//         "ads_start",     /* String with name of task. */
-//         20480,           /* Stack size in bytes. */
-//         NULL,            /* Parameter passed as input of the task */
-//         1,               /* Priority of the task. */
-//         &adsTaskHandle); /* Task handle. */
-// }
-
-// void adsFastSampleTask()
-// {
-//     xTaskCreate(
-//         sampleADScontinuous, /* Task function. */
-//         "ads_start",         /* String with name of task. */
-//         20480,               /* Stack size in bytes. */
-//         NULL,                /* Parameter passed as input of the task */
-//         1,                   /* Priority of the task. */
-//         &adsFastTaskHandle); /* Task handle. */
-// }
+//-----------------------------------------------------------------------------------------------
 
 void ADSsampleTask(TaskHandle_t *taskHandle)
 {
@@ -299,16 +278,52 @@ void ADSsampleTask(TaskHandle_t *taskHandle)
     );
 }
 
-void adsFastSampleTask(TaskHandle_t *taskHandle)
+void sampleADS(void *pvParameters)
 {
-    xTaskCreate(
-        sampleADScontinuous,    // Function that the task will run
-        "ADS Fast Sample Task", // Name of the task
-        20240,                  // Stack size
-        NULL,                   // Parameters to pass (can be modified as needed)
-        1,                      // Task priority
-        taskHandle              // Pointer to handle
-    );
+    for (;;)
+    {
+        std::unordered_map<int, std::vector<std::pair<unsigned long, std::array<int16_t, 4>>>> ADS_sensorData;
+
+        // Wait for a notification to start data acquisition
+        ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+
+        // Perform data acquisition continuously until notified to save data
+        while (true)
+        {
+            UOM_sensorADS(ADS_sensorData, heaterSettings, heatingTime);
+            Serial.print("-");
+
+            // Check if there's a notification to save data
+            if (ulTaskNotifyTake(pdTRUE, 0)) // Check without waiting
+            {
+                Serial.println("Data saving notification received.");
+                break;
+            }
+        }
+
+        // Save the acquired data
+        saveADSData(ADS_sensorData, setup_tracker, repeat_tracker, channel_tracker, exp_name);
+
+        // Notify the exp_loop task that data saving is complete
+        xTaskNotifyGive(expLoopTaskHandle);
+    }
+}
+
+int UOM_sensorADS(std::unordered_map<int, std::vector<std::pair<unsigned long, std::array<int16_t, 4>>>> &ADS_sensorData, std::vector<int> heaterSettings, int heatingTime)
+{
+
+    for (int setting : heaterSettings)
+    {
+        // Serial.print("+");
+        ledcWrite(PWM_Heater, setting);
+
+        unsigned long timestamp = millis(); // relative timestamp has a resetting bug that needs to be fixed
+        std::array<int16_t, 4> ADSreadings = {ads.readADC_SingleEnded(0), ads.readADC_SingleEnded(1), ads.readADC_SingleEnded(2), ads.readADC_SingleEnded(3)};
+        // ADS_sensorData[setting].push_back(std::make_pair(timestamp, ADSreadings));
+        ADS_sensorData[setting].emplace_back(timestamp, ADSreadings);
+    }
+
+    return 0;
 }
 
 // buffer based saving method
