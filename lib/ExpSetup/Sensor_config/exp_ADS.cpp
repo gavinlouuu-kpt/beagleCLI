@@ -5,150 +5,8 @@
 #include <SD.h> // SD card library but included in M5 library
 // #include <Adafruit_ADS1X15.h>
 #include <pinConfig.h>
-#include <CircularBuffer.hpp>
 
 String continuousADS_Header = "Setting,Timestamp,Value";
-
-// constexpr size_t bufferSize = 1000;
-
-// struct SettingData
-// {
-//     int setting;
-//     unsigned long timestamp;
-//     int16_t value;
-// };
-
-// // Two buffers for double buffering
-// CircularBuffer<SettingData, bufferSize> BufferA;
-// CircularBuffer<SettingData, bufferSize> BufferB;
-// CircularBuffer<SettingData, bufferSize> *currentBuffer = &BufferA;
-// CircularBuffer<SettingData, bufferSize> *saveBuffer = &BufferB;
-
-// TaskHandle_t dataSaveTaskHandle;
-
-// void switchBuffers()
-// {
-//     if (currentBuffer == &BufferA)
-//     {
-//         currentBuffer = &BufferB;
-//         saveBuffer = &BufferA;
-//     }
-//     else
-//     {
-//         currentBuffer = &BufferA;
-//         saveBuffer = &BufferB;
-//     }
-// }
-
-// void saveADSDataFromBuffer(const CircularBuffer<SettingData, bufferSize> &buffer, const String &filename)
-// {
-//     File myFile = SD.open(filename, FILE_APPEND);
-//     if (!myFile)
-//     {
-//         Serial.println("Error opening file for writing");
-//         return;
-//     }
-
-//     if (myFile.size() == 0)
-//     {
-//         myFile.println(continuousADS_Header);
-//     }
-
-//     for (size_t i = 0; i < buffer.size(); i++)
-//     {
-//         const SettingData &data = buffer[i];
-//         myFile.printf("%d,%lu,%d\n", data.setting, data.timestamp, data.value);
-//     }
-
-//     myFile.close();
-//     Serial.println("Data dumped to: " + filename);
-// }
-
-// void dataSaveTask(void *parameters)
-// {
-//     String filename = *(String *)parameters; // Correct casting
-
-//     for (;;)
-//     {
-//         ulTaskNotifyTake(pdTRUE, portMAX_DELAY); // Wait for notification to save data
-//         saveADSDataFromBuffer(*saveBuffer, filename);
-//         saveBuffer->clear();
-//     }
-// }
-
-// void adsFastSampleTask(TaskHandle_t *taskHandle)
-// {
-//     Serial.println("add file name");
-//     String filename = setupSave(setup_tracker, repeat_tracker, channel_tracker, exp_name);
-
-//     Serial.println("Creating data save Task");
-//     xTaskCreate(dataSaveTask, "Data Save Task", 4096, NULL, 1, &dataSaveTaskHandle);
-//     Serial.println("Creating data sampling Task");
-//     xTaskCreate(sampleADScontinuous, "ADS Fast Sample Task", 4096, NULL, 1, taskHandle);
-// }
-
-// void UOM_ADS_continuous(CircularBuffer<SettingData, bufferSize> &buffer, const std::vector<int> &heaterSettings, int heatingTime)
-// {
-//     for (int setting : heaterSettings)
-//     {
-//         ledcWrite(PWM_Heater, setting);
-//         unsigned long timestamp = millis();
-//         int16_t result = ads.getLastConversionResults();
-
-//         SettingData data;
-//         data.setting = setting;
-//         data.timestamp = timestamp;
-//         data.value = result;
-
-//         buffer.push(data);
-//     }
-// }
-
-// void sampleADScontinuous(void *pvParameters)
-// {
-//     const unsigned long saveInterval = 2000; // 5 minutes in milliseconds
-//     unsigned long lastSaveTime = millis();
-
-//     for (;;)
-//     {
-//         Serial.println("RUNNER: Waiting for notification to start data acquisition.");
-//         ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
-//         Serial.println("RUNNER: Start data acquisition.");
-//         currentBuffer->clear();
-//         String filename = setupSave(setup_tracker, repeat_tracker, channel_tracker, exp_name);
-
-//         while (true)
-//         {
-//             UOM_ADS_continuous(*currentBuffer, heaterSettings, heatingTime);
-//             Serial.print("*");
-
-//             if (millis() - lastSaveTime >= saveInterval || currentBuffer->isFull())
-//             {
-//                 switchBuffers();                     // Switch the current buffer
-//                 xTaskNotifyGive(dataSaveTaskHandle); // Notify the data save task
-//                 lastSaveTime = millis();
-//             }
-
-//             if (ulTaskNotifyTake(pdTRUE, 0))
-//             {
-//                 Serial.println("RUNNER: Data saving notification received.");
-//                 break;
-//             }
-//         }
-
-//         if (!currentBuffer->isEmpty())
-//         {
-//             switchBuffers(); // Ensure all data is in the buffer set for saving
-//             xTaskNotifyGive(dataSaveTaskHandle);
-//         }
-
-//         Serial.println("RUNNER: Data saving complete. Notifying expLoopTask.");
-//         xTaskNotifyGive(expLoopTaskHandle);
-//     }
-// }
-
-// // previous working code
-constexpr size_t bufferSize = 5000;
 
 struct SettingData
 {
@@ -157,7 +15,10 @@ struct SettingData
     int16_t value;
 };
 
-CircularBuffer<SettingData, bufferSize> ADSBuffer;
+std::vector<SettingData> ADSBuffer;
+constexpr size_t bufferSize = 5000;
+
+// CircularBuffer<SettingData, bufferSize> ADSBuffer;
 
 void adsFastSampleTask(TaskHandle_t *taskHandle)
 {
@@ -171,7 +32,7 @@ void adsFastSampleTask(TaskHandle_t *taskHandle)
     );
 }
 
-void UOM_ADS_continuous(CircularBuffer<SettingData, bufferSize> &buffer, const std::vector<int> &heaterSettings, int heatingTime)
+void UOM_ADS_continuous(std::vector<SettingData> &buffer, const std::vector<int> &heaterSettings, int heatingTime)
 {
     for (int setting : heaterSettings)
     {
@@ -184,11 +45,11 @@ void UOM_ADS_continuous(CircularBuffer<SettingData, bufferSize> &buffer, const s
         data.timestamp = timestamp; // Assign the timestamp
         data.value = result;        // Assign the sensor result
 
-        buffer.push(data); // Push structured data to circular buffer
+        buffer.push_back(data); // Push structured data to circular buffer
     }
 }
 
-void saveADSDataFromBuffer(const CircularBuffer<SettingData, bufferSize> &buffer, const String &filename)
+void saveADSDataFromBuffer(const std::vector<SettingData> &buffer, const String &filename, String header)
 {
     File myFile = SD.open(filename, FILE_APPEND); // Change here to FILE_APPEND
     if (!myFile)
@@ -200,13 +61,11 @@ void saveADSDataFromBuffer(const CircularBuffer<SettingData, bufferSize> &buffer
     // The header should only be written if the file was newly created or is empty
     if (myFile.size() == 0)
     {
-        myFile.println(continuousADS_Header); // Write header only if file is empty
+        myFile.println(header); // Write header only if file is empty
     }
 
-    // Dump all buffer data to file
-    for (size_t i = 0; i < buffer.size(); i++)
+    for (const auto &data : buffer)
     {
-        const SettingData &data = buffer[i];
         myFile.printf("%d,%lu,%d\n", data.setting, data.timestamp, data.value);
     }
 
@@ -216,8 +75,9 @@ void saveADSDataFromBuffer(const CircularBuffer<SettingData, bufferSize> &buffer
 
 void sampleADScontinuous(void *pvParameters)
 {
-    const unsigned long saveInterval = 300000; // 5 minutes in milliseconds
+    const unsigned long saveInterval = 5000; // 5 seconds in milliseconds
     unsigned long lastSaveTime = millis();
+    ADSBuffer.reserve(bufferSize); // Reserve memory for buffer only within a function
 
     for (;;)
     {
@@ -237,10 +97,9 @@ void sampleADScontinuous(void *pvParameters)
             Serial.print("*");
 
             // Check if it's time to save data
-            if (millis() - lastSaveTime >= saveInterval || ADSBuffer.isFull())
+            if (millis() - lastSaveTime >= saveInterval || ADSBuffer.size() >= bufferSize)
             {
-
-                saveADSDataFromBuffer(ADSBuffer, filename);
+                saveADSDataFromBuffer(ADSBuffer, filename, continuousADS_Header);
                 lastSaveTime = millis(); // Reset the timer after saving
                 ADSBuffer.clear();       // Optionally clear buffer after saving if appropriate
             }
@@ -254,10 +113,10 @@ void sampleADScontinuous(void *pvParameters)
         }
 
         // Optionally perform a final save if there's data left in the buffer
-        if (!ADSBuffer.isEmpty())
+        if (!ADSBuffer.empty())
         {
             // String filename = setupSave(setup_tracker, repeat_tracker, channel_tracker, exp_name);
-            saveADSDataFromBuffer(ADSBuffer, filename);
+            saveADSDataFromBuffer(ADSBuffer, filename, continuousADS_Header);
             ADSBuffer.clear(); // Clear buffer after final saving
         }
 
@@ -271,8 +130,6 @@ void sampleADScontinuous(void *pvParameters)
         // Serial.println("RUNNER: Received notification to start next experiment.");
     }
 }
-
-
 
 //-----------------------------------------------------------------------------------------------
 

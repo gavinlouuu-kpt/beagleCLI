@@ -1,3 +1,7 @@
+Developing:
+- Parameterise saving functions to take in different Data struct
+- Change buffer structure to simple vector
+
 Issue:
 2024/07/16
 - ADS detail function crashes ESP32 after several samples being acquired
