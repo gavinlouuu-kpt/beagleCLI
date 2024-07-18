@@ -61,15 +61,17 @@ String setupSave(int setup_tracker, int repeat_tracker, int channel_tracker, Str
 // ADS experiment functions
 extern Adafruit_ADS1115 ads;
 int UOM_sensorADS(std::unordered_map<int, std::vector<std::pair<unsigned long, std::array<int16_t, 4>>>> &ADS_sensorData, std::vector<int> heaterSettings, int heatingTime);
-int UOM_sensorADS(std::unordered_map<int, std::vector<std::pair<unsigned long, std::array<int16_t, 4>>>> &ADS_sensorData, std::vector<int> heaterSettings, int heatingTime);
+// int UOM_sensorADS(std::unordered_map<int, std::vector<std::pair<unsigned long, std::array<int16_t, 4>>>> &ADS_sensorData, std::vector<int> heaterSettings, int heatingTime);
 void sampleADS(void *pvParameters);
 void sampleADScontinuous(void *pvParameters);
-void saveADScontinuous(std::unordered_map<int, std::vector<std::pair<unsigned long, int16_t>>> &ADS_continuous, int setup_tracker, int repeat_tracker, int channel_tracker, String exp_name);
+// void saveADScontinuous(std::unordered_map<int, std::vector<std::pair<unsigned long, int16_t>>> &ADS_continuous, int setup_tracker, int repeat_tracker, int channel_tracker, String exp_name);
 // void ADSsampleTask();
 void ADSsampleTask(TaskHandle_t *taskHandle);
 void saveADSData(std::unordered_map<int, std::vector<std::pair<unsigned long, std::array<int16_t, 4>>>> &ADS_sensorData, int setup_tracker, int repeat_tracker, int channel_tracker, String exp_name);
 // void adsFastSampleTask();
 void adsFastSampleTask(TaskHandle_t *taskHandle);
+
+void temp_ADS(void *pvParameters);
 
 // BME experiment functions
 extern Adafruit_BME680 bme; // I2C

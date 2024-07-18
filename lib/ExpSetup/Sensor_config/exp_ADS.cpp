@@ -6,21 +6,20 @@
 // #include <Adafruit_ADS1X15.h>
 #include <pinConfig.h>
 
-String continuousADS_Header = "Setting,Timestamp,Value";
+String continuousADS_Header = "Setting,Timestamp,Channel_0";
 
-struct SettingData
+struct SingleChannel
 {
     int setting;
     unsigned long timestamp;
-    int16_t value;
+    int16_t channel_0;
 };
 
-std::vector<SettingData> ADSBuffer1;
-std::vector<SettingData> ADSBuffer2;
-std::vector<SettingData> *currentBuffer = &ADSBuffer1;
-std::vector<SettingData> *saveBuffer = &ADSBuffer2;
+std::vector<SingleChannel> ADSBuffer1;
+std::vector<SingleChannel> ADSBuffer2;
+std::vector<SingleChannel> *currentBuffer; // = &ADSBuffer1;
+std::vector<SingleChannel> *saveBuffer;    // = &ADSBuffer2;
 
-// std::vector<SettingData> ADSBuffer;
 constexpr size_t bufferSize = 500;
 
 void switchBuffers()
@@ -41,7 +40,8 @@ void switchBuffers()
 void adsFastSampleTask(TaskHandle_t *taskHandle)
 {
     xTaskCreate(
-        sampleADScontinuous,    // Function that the task will run
+        // sampleADScontinuous,    // Function that the task will run
+        temp_ADS,
         "ADS Fast Sample Task", // Name of the task
         20240,                  // Stack size
         NULL,                   // Parameters to pass (can be modified as needed)
@@ -50,7 +50,7 @@ void adsFastSampleTask(TaskHandle_t *taskHandle)
     );
 }
 
-void UOM_ADS_continuous(std::vector<SettingData> *buffer, const std::vector<int> &heaterSettings, int heatingTime)
+void ADS_continuous(std::vector<SingleChannel> *buffer, const std::vector<int> &heaterSettings, int heatingTime)
 {
     for (int setting : heaterSettings)
     {
@@ -58,16 +58,16 @@ void UOM_ADS_continuous(std::vector<SettingData> *buffer, const std::vector<int>
         unsigned long timestamp = millis();              // Get current timestamp
         int16_t result = ads.getLastConversionResults(); // Get sensor reading
 
-        SettingData data;           // Create a struct instance
+        SingleChannel data;         // Create a struct instance
         data.setting = setting;     // Assign the setting
         data.timestamp = timestamp; // Assign the timestamp
-        data.value = result;        // Assign the sensor result
+        data.channel_0 = result;    // Assign the sensor result
 
         buffer->push_back(data); // Push structured data to circular buffer
     }
 }
 
-void saveADSDataFromBuffer(const std::vector<SettingData> &buffer, const String &filename, String header)
+void saveADSDataFromBuffer(const std::vector<SingleChannel> &buffer, const String &filename, String header)
 {
     File myFile = SD.open(filename, FILE_APPEND); // Change here to FILE_APPEND
     if (!myFile)
@@ -75,35 +75,27 @@ void saveADSDataFromBuffer(const std::vector<SettingData> &buffer, const String 
         Serial.println("Error opening file for writing");
         return;
     }
-
-    // The header should only be written if the file was newly created or is empty
-    if (myFile.size() == 0)
+    if (myFile.size() == 0) // The header should only be written if the file was newly created or is empty
     {
         myFile.println(header); // Write header only if file is empty
     }
-
     for (const auto &data : buffer)
     {
-        myFile.printf("%d,%lu,%d\n", data.setting, data.timestamp, data.value);
+        myFile.printf("%d,%lu,%d\n", data.setting, data.timestamp, data.channel_0);
     }
-
     myFile.close();
     Serial.println("Data dumped to: " + filename);
 }
+
 String filename;
 void dataSavingTask(void *pvParameters)
 {
     for (;;)
     {
-        // Wait for notification from the data collection task
-        ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
-
-        // Save the data from the buffer
+        ulTaskNotifyTake(pdTRUE, portMAX_DELAY); // Wait for notification from the data collection task
         saveADSDataFromBuffer(*saveBuffer, filename, continuousADS_Header);
-        saveBuffer->clear(); // Clear the buffer after saving
-
-        // Notify the collection task that saving is complete and buffer is cleared
-        // xTaskNotifyGive(dataCollectionTaskHandle);
+        saveBuffer->clear();
+        // xTaskNotifyGive(dataCollectionTaskHandle);// Notify the collection task that saving is complete and buffer is cleared
     }
 }
 
@@ -111,11 +103,9 @@ void sampleADScontinuous(void *pvParameters)
 {
     const unsigned long saveInterval = 5000; // 5 seconds in milliseconds
     unsigned long lastSaveTime = millis();
-    // ADSBuffer.reserve(bufferSize); // Reserve memory for buffer only within a function
     currentBuffer->reserve(bufferSize);
     saveBuffer->reserve(bufferSize);
-    // Start the saving task
-    TaskHandle_t savingTaskHandle;
+    TaskHandle_t savingTaskHandle; // Start the saving task
     xTaskCreate(dataSavingTask, "Data Saving Task", 4096, NULL, 1, &savingTaskHandle);
 
     for (;;)
@@ -124,57 +114,116 @@ void sampleADScontinuous(void *pvParameters)
         Serial.println("RUNNER: Waiting for notification to start data acquisition.");
         ulTaskNotifyTake(pdTRUE, portMAX_DELAY); // Start of a new experiment
         Serial.println("RUNNER: Start data acquisition.");
-        // ADSBuffer.clear();
         currentBuffer->clear();
         // Global variable version
         filename = setupSave(setup_tracker, repeat_tracker, channel_tracker, exp_name);
 
         while (true)
         {
-
-            // UOM_ADS_continuous(ADSBuffer, heaterSettings, heatingTime);
-            UOM_ADS_continuous(currentBuffer, heaterSettings, heatingTime);
+            ADS_continuous(currentBuffer, heaterSettings, heatingTime);
             Serial.print("*");
 
-            // Check if it's time to save data
             if (millis() - lastSaveTime >= saveInterval || currentBuffer->size() >= bufferSize)
             {
                 switchBuffers();
-                // saveADSDataFromBuffer(*saveBuffer, filename, continuousADS_Header);
-                // saveBuffer->clear();     // Clear the buffer after saving
-                lastSaveTime = millis(); // Reset the timer after saving
-                // ADSBuffer.clear();       // Optionally clear buffer after saving if appropriate
+                lastSaveTime = millis();           // Reset the timer after saving
                 xTaskNotifyGive(savingTaskHandle); // Notify the saving task to save the data
             }
-
-            // Check for a stop notification without waiting
-            if (ulTaskNotifyTake(pdTRUE, 0))
+            if (ulTaskNotifyTake(pdTRUE, 0)) // Check for a stop notification without waiting
             {
                 Serial.println("RUNNER: Data saving notification received.");
                 break; // Stop data acquisition on notification
             }
         }
-
-        // Optionally perform a final save if there's data left in the buffer
-        // if (!ADSBuffer.empty())
         if (!currentBuffer->empty())
         {
-            // String filename = setupSave(setup_tracker, repeat_tracker, channel_tracker, exp_name);
             switchBuffers();
-            // saveADSDataFromBuffer(ADSBuffer, filename, continuousADS_Header);
-            // saveADSDataFromBuffer(*saveBuffer, filename, continuousADS_Header);
-            // ADSBuffer.clear(); // Clear buffer after final saving
-            // saveBuffer->clear(); // Clear buffer after final saving
             xTaskNotifyGive(savingTaskHandle); // Notify the saving task to save the data
         }
 
-        // Notify that this round of data collection is complete
         Serial.println("RUNNER: Data saving complete. Notifying expLoopTask.");
         xTaskNotifyGive(expLoopTaskHandle);
     }
 }
 
 //-----------------------------------------------------------------------------------------------
+
+#include <functional>
+
+using BufferType = std::vector<SingleChannel>; // Use SingleChannel for the buffer type
+using SamplingFunction = void (*)(BufferType *, const std::vector<int> &, int);
+
+void genericSampleADSContinuous(void *pvParameters, SamplingFunction sampleFunc)
+{
+    const unsigned long saveInterval = 5000; // 5 seconds in milliseconds
+    unsigned long lastSaveTime = millis();
+
+    BufferType *currentBuffer = new BufferType();
+    currentBuffer->reserve(bufferSize);
+
+    TaskHandle_t savingTaskHandle;
+    xTaskCreate(dataSavingTask, "Data Saving Task", 4096, NULL, 1, &savingTaskHandle);
+
+    std::vector<int> heaterSettings = {}; // This should be initialized appropriately
+
+    for (;;)
+    {
+        Serial.println("RUNNER: Waiting for notification to start data acquisition.");
+        ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+        currentBuffer->clear();
+
+        while (true)
+        {
+            sampleFunc(currentBuffer, heaterSettings, heatingTime);
+            Serial.print("*");
+
+            if (millis() - lastSaveTime >= saveInterval || currentBuffer->size() >= bufferSize)
+            {
+                switchBuffers();
+                lastSaveTime = millis();
+                xTaskNotifyGive(savingTaskHandle);
+            }
+
+            if (ulTaskNotifyTake(pdTRUE, 0))
+            {
+                Serial.println("RUNNER: Data saving notification received.");
+                break;
+            }
+        }
+
+        if (!currentBuffer->empty())
+        {
+            switchBuffers();
+            xTaskNotifyGive(savingTaskHandle);
+        }
+
+        Serial.println("RUNNER: Data saving complete. Notifying expLoopTask.");
+        xTaskNotifyGive(expLoopTaskHandle);
+    }
+}
+
+void temp_ADS(void *pvParameters)
+{
+    // Call the generic function with the specific sampling function
+    genericSampleADSContinuous(nullptr, ADS_continuous);
+}
+
+//-----------------------------------------------------------------------------------------------
+
+struct MultiChannel
+{
+    int setting;
+    unsigned long timestamp;
+    int16_t channel_0;
+    int16_t channel_1;
+    int16_t channel_2;
+    int16_t channel_3;
+};
+
+std::vector<MultiChannel> m_ADSBuffer1;
+std::vector<MultiChannel> m_ADSBuffer2;
+std::vector<MultiChannel> *m_currentBuffer = &m_ADSBuffer1;
+std::vector<MultiChannel> *m_saveBuffer = &m_ADSBuffer2;
 
 void ADSsampleTask(TaskHandle_t *taskHandle)
 {
@@ -289,3 +338,5 @@ void saveADSData(std::unordered_map<int, std::vector<std::pair<unsigned long, st
     myFile.close();
     ADS_sensorData.clear(); // Ensure to clear the correct data structure
 }
+// template functions
+//-----------------------------------------------------------------------------------------------

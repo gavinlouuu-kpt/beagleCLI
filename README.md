@@ -1,6 +1,8 @@
 Developing:
 - Parameterise saving functions to take in different Data struct
 - Change buffer structure to simple vector
+- Dual buffer implementation
+- Data structure 
 
 Issue:
 2024/07/16
