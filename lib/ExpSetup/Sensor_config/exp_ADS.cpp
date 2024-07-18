@@ -21,7 +21,7 @@ std::vector<SettingData> *currentBuffer = &ADSBuffer1;
 std::vector<SettingData> *saveBuffer = &ADSBuffer2;
 // std::vector<SettingData> ADSBuffer;
 
-constexpr size_t bufferSize = 5000;
+constexpr size_t bufferSize = 2500;
 
 // CircularBuffer<SettingData, bufferSize> ADSBuffer;
 
