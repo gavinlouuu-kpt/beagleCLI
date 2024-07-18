@@ -15,10 +15,29 @@ struct SettingData
     int16_t value;
 };
 
-std::vector<SettingData> ADSBuffer;
+std::vector<SettingData> ADSBuffer1;
+std::vector<SettingData> ADSBuffer2;
+std::vector<SettingData> *currentBuffer = &ADSBuffer1;
+std::vector<SettingData> *saveBuffer = &ADSBuffer2;
+// std::vector<SettingData> ADSBuffer;
+
 constexpr size_t bufferSize = 5000;
 
 // CircularBuffer<SettingData, bufferSize> ADSBuffer;
+
+void switchBuffers()
+{
+    if (currentBuffer == &ADSBuffer1)
+    {
+        currentBuffer = &ADSBuffer2;
+        saveBuffer = &ADSBuffer1;
+    }
+    else
+    {
+        currentBuffer = &ADSBuffer1;
+        saveBuffer = &ADSBuffer2;
+    }
+}
 
 void adsFastSampleTask(TaskHandle_t *taskHandle)
 {
@@ -77,31 +96,30 @@ void sampleADScontinuous(void *pvParameters)
 {
     const unsigned long saveInterval = 5000; // 5 seconds in milliseconds
     unsigned long lastSaveTime = millis();
-    ADSBuffer.reserve(bufferSize); // Reserve memory for buffer only within a function
+    currentBuffer->reserve(bufferSize);
+    saveBuffer->reserve(bufferSize);
 
     for (;;)
     {
-        // Wait for a notification to start data acquisition
         Serial.println("RUNNER: Waiting for notification to start data acquisition.");
         ulTaskNotifyTake(pdTRUE, portMAX_DELAY); // Start of a new experiment
         Serial.println("RUNNER: Start data acquisition.");
-        ADSBuffer.clear();
+        currentBuffer->clear();
+
         String filename = setupSave(setup_tracker, repeat_tracker, channel_tracker, exp_name);
 
         while (true)
         {
-            // Perform data acquisition
-            // std::array<int16_t, 4> results;  // Simulate results
-            // int currentSetting = getCurrentSetting();  // Get the current setting
-            UOM_ADS_continuous(ADSBuffer, heaterSettings, heatingTime);
+            UOM_ADS_continuous(*currentBuffer, heaterSettings, heatingTime);
             Serial.print("*");
 
             // Check if it's time to save data
-            if (millis() - lastSaveTime >= saveInterval || ADSBuffer.size() >= bufferSize)
+            if (millis() - lastSaveTime >= saveInterval || currentBuffer->size() >= bufferSize)
             {
-                saveADSDataFromBuffer(ADSBuffer, filename, continuousADS_Header);
+                switchBuffers();
+                saveADSDataFromBuffer(*saveBuffer, filename, continuousADS_Header);
+                saveBuffer->clear();     // Optionally clear buffer after saving if appropriate
                 lastSaveTime = millis(); // Reset the timer after saving
-                ADSBuffer.clear();       // Optionally clear buffer after saving if appropriate
             }
 
             // Check for a stop notification without waiting
@@ -112,22 +130,15 @@ void sampleADScontinuous(void *pvParameters)
             }
         }
 
-        // Optionally perform a final save if there's data left in the buffer
-        if (!ADSBuffer.empty())
+        if (!currentBuffer->empty())
         {
-            // String filename = setupSave(setup_tracker, repeat_tracker, channel_tracker, exp_name);
-            saveADSDataFromBuffer(ADSBuffer, filename, continuousADS_Header);
-            ADSBuffer.clear(); // Clear buffer after final saving
+            switchBuffers();
+            saveADSDataFromBuffer(*saveBuffer, filename, continuousADS_Header);
+            saveBuffer->clear(); // Clear buffer after final saving
         }
-
         // Notify that this round of data collection is complete
         Serial.println("RUNNER: Data saving complete. Notifying expLoopTask.");
         xTaskNotifyGive(expLoopTaskHandle);
-        // Block until the next run or termination
-
-        // Serial.println("RUNNER: Waiting for next experiment or termination.");
-        // ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
-        // Serial.println("RUNNER: Received notification to start next experiment.");
     }
 }
 
