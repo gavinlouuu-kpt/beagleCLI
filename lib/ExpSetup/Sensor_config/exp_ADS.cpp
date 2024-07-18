@@ -89,6 +89,22 @@ void saveADSDataFromBuffer(const std::vector<SettingData> &buffer, const String 
     myFile.close();
     Serial.println("Data dumped to: " + filename);
 }
+String filename;
+void dataSavingTask(void *pvParameters)
+{
+    for (;;)
+    {
+        // Wait for notification from the data collection task
+        ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+
+        // Save the data from the buffer
+        saveADSDataFromBuffer(*saveBuffer, filename, continuousADS_Header);
+        saveBuffer->clear(); // Clear the buffer after saving
+
+        // Notify the collection task that saving is complete and buffer is cleared
+        // xTaskNotifyGive(dataCollectionTaskHandle);
+    }
+}
 
 void sampleADScontinuous(void *pvParameters)
 {
@@ -97,6 +113,9 @@ void sampleADScontinuous(void *pvParameters)
     // ADSBuffer.reserve(bufferSize); // Reserve memory for buffer only within a function
     currentBuffer->reserve(2500);
     saveBuffer->reserve(2500);
+    // Start the saving task
+    TaskHandle_t savingTaskHandle;
+    xTaskCreate(dataSavingTask, "Data Saving Task", configMINIMAL_STACK_SIZE, NULL, 1, &savingTaskHandle);
 
     for (;;)
     {
@@ -106,8 +125,8 @@ void sampleADScontinuous(void *pvParameters)
         Serial.println("RUNNER: Start data acquisition.");
         // ADSBuffer.clear();
         currentBuffer->clear();
-
-        String filename = setupSave(setup_tracker, repeat_tracker, channel_tracker, exp_name);
+        // Global variable version
+        filename = setupSave(setup_tracker, repeat_tracker, channel_tracker, exp_name);
 
         while (true)
         {
@@ -120,10 +139,11 @@ void sampleADScontinuous(void *pvParameters)
             if (millis() - lastSaveTime >= saveInterval || currentBuffer->size() >= bufferSize)
             {
                 switchBuffers();
-                saveADSDataFromBuffer(*saveBuffer, filename, continuousADS_Header);
-                saveBuffer->clear();     // Clear the buffer after saving
+                // saveADSDataFromBuffer(*saveBuffer, filename, continuousADS_Header);
+                // saveBuffer->clear();     // Clear the buffer after saving
                 lastSaveTime = millis(); // Reset the timer after saving
                 // ADSBuffer.clear();       // Optionally clear buffer after saving if appropriate
+                xTaskNotifyGive(savingTaskHandle); // Notify the saving task to save the data
             }
 
             // Check for a stop notification without waiting
@@ -141,9 +161,10 @@ void sampleADScontinuous(void *pvParameters)
             // String filename = setupSave(setup_tracker, repeat_tracker, channel_tracker, exp_name);
             switchBuffers();
             // saveADSDataFromBuffer(ADSBuffer, filename, continuousADS_Header);
-            saveADSDataFromBuffer(*saveBuffer, filename, continuousADS_Header);
+            // saveADSDataFromBuffer(*saveBuffer, filename, continuousADS_Header);
             // ADSBuffer.clear(); // Clear buffer after final saving
-            saveBuffer->clear(); // Clear buffer after final saving
+            // saveBuffer->clear(); // Clear buffer after final saving
+            xTaskNotifyGive(savingTaskHandle); // Notify the saving task to save the data
         }
 
         // Notify that this round of data collection is complete
