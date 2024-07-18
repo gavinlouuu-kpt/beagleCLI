@@ -158,19 +158,18 @@ void genericSampleADSContinuous(void *pvParameters, SamplingFunction sampleFunc)
     const unsigned long saveInterval = 5000; // 5 seconds in milliseconds
     unsigned long lastSaveTime = millis();
 
-    BufferType *currentBuffer = new BufferType();
     currentBuffer->reserve(bufferSize);
+    saveBuffer->reserve(bufferSize);
 
     TaskHandle_t savingTaskHandle;
     xTaskCreate(dataSavingTask, "Data Saving Task", 4096, NULL, 1, &savingTaskHandle);
-
-    std::vector<int> heaterSettings = {}; // This should be initialized appropriately
 
     for (;;)
     {
         Serial.println("RUNNER: Waiting for notification to start data acquisition.");
         ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
         currentBuffer->clear();
+        filename = setupSave(setup_tracker, repeat_tracker, channel_tracker, exp_name);
 
         while (true)
         {
