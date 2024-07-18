@@ -21,10 +21,11 @@ std::vector<SettingData> *currentBuffer = &ADSBuffer1;
 std::vector<SettingData> *saveBuffer = &ADSBuffer2;
 
 // std::vector<SettingData> ADSBuffer;
-constexpr size_t bufferSize = 5000;
+constexpr size_t bufferSize = 500;
 
 void switchBuffers()
 {
+    Serial.println("Switching buffers.");
     if (currentBuffer == &ADSBuffer1)
     {
         currentBuffer = &ADSBuffer2;
@@ -111,11 +112,11 @@ void sampleADScontinuous(void *pvParameters)
     const unsigned long saveInterval = 5000; // 5 seconds in milliseconds
     unsigned long lastSaveTime = millis();
     // ADSBuffer.reserve(bufferSize); // Reserve memory for buffer only within a function
-    currentBuffer->reserve(5000);
-    saveBuffer->reserve(5000);
+    currentBuffer->reserve(bufferSize);
+    saveBuffer->reserve(bufferSize);
     // Start the saving task
     TaskHandle_t savingTaskHandle;
-    xTaskCreate(dataSavingTask, "Data Saving Task", 10240, NULL, 1, &savingTaskHandle);
+    xTaskCreate(dataSavingTask, "Data Saving Task", 4096, NULL, 1, &savingTaskHandle);
 
     for (;;)
     {
