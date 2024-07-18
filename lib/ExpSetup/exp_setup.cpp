@@ -38,71 +38,12 @@ String currentPath = "";
 
 SamplingType samplingType;
 
-int sensorCheck()
-{
-    if (!bme.begin() && !ads.begin(ADSi2c))
-    {
-        Serial.println("No sensor found!");
-        return 0;
-    }
-    if (bme.begin())
-    {
-        Serial.println("BME680 sensor found!");
-        // BMEsampleTask();
-        return 1;
-    }
-    else if (ads.begin(ADSi2c))
-    {
-        // ads.setDataRate(RATE_ADS1115_860SPS);
-        // ads.setGain(GAIN_ONE);
-        Serial.println("ADS1115 sensor found!");
-        // ADSsampleTask();
-        return 2;
-    }
-    Serial.println("Sensor checking failed!");
-    return -1;
-}
-
 void deleteTask(TaskHandle_t *taskHandle)
 {
     if (taskHandle != NULL && *taskHandle != NULL)
     {
         vTaskDelete(*taskHandle);
         *taskHandle = NULL; // Set the handle to NULL after deleting the task
-    }
-}
-
-void deleteTaskBasedOnType(SamplingType samplingType)
-{
-    switch (samplingType)
-    {
-    case SamplingType::ADS_DETAIL:
-        if (adsTaskHandle != NULL)
-        {
-            vTaskDelete(adsTaskHandle);
-            adsTaskHandle = NULL; // Clear the handle after deletion
-        }
-        break;
-
-    case SamplingType::ADS:
-        if (adsTaskHandle != NULL)
-        {
-            vTaskDelete(adsTaskHandle);
-            adsTaskHandle = NULL; // Clear the handle after deletion
-        }
-        break;
-
-    case SamplingType::BME680:
-        if (bmeTaskHandle != NULL)
-        {
-            vTaskDelete(bmeTaskHandle);
-            bmeTaskHandle = NULL; // Clear the handle after deletion
-        }
-        break;
-
-    default:
-        Serial.println("Unknown sampling type for deletion!");
-        break;
     }
 }
 
@@ -128,29 +69,6 @@ TaskHandle_t samplingMethod(SamplingType samplingType)
 
     return taskHandle; // Will be NULL if neither condition is met
 }
-
-// TaskHandle_t samplingMethod(SamplingType samplingType)
-// {
-//     if (samplingType == SamplingType::ADS_DETAIL)
-//     {
-//         ads.begin(ADSi2c);
-//         ads.setDataRate(RATE_ADS1115_860SPS);
-//         ads.setGain(GAIN_ONE);
-//         ADSsampleTask();
-
-//         return adsTaskHandle;
-//     }
-//     else if (samplingType == SamplingType::ADS)
-//     {
-//         ads.begin(ADSi2c);
-//         ads.setDataRate(RATE_ADS1115_860SPS);
-//         ads.setGain(GAIN_ONE);
-//         adsFastSampleTask();
-
-//         return adsFastTaskHandle;
-//     }
-//     return NULL;
-// }
 
 int serial_delay = 15;
 
@@ -234,11 +152,6 @@ void exp_loop(FirebaseJson config, int setup_count, SamplingType samplingType)
 {
     TaskHandle_t samplingTask = samplingMethod(samplingType);
 
-    // int sensorType = sensorCheck();
-
-    // split function to accomodate fast and full ADS
-    // now task type is decided by TaskHandle instead of dynamic sensorType detection
-
     purgeAll();
 
     std::vector<uint8_t> pump_on = switchCommand(1, pump_relay, 1);
@@ -255,6 +168,10 @@ void exp_loop(FirebaseJson config, int setup_count, SamplingType samplingType)
         int duration = getInt(config, i, EXPOSE_DURATION) * 1000;
         int repeat = getInt(config, i, REPEAT);
         std::vector<int> channels = getArr(config, i, CHANNEL);
+
+        // warm up logic here
+        int warm_up_time = 30000;
+        ADS_warm_up(heaterSettings, heatingTime, warm_up_time);
 
         if (duration == 0 || repeat == 0 || channels.size() == 0)
         {
@@ -353,39 +270,6 @@ void exp_build(SamplingType samplingType)
     exp_loop(json, setupCount, samplingType);
 }
 
-// void exp_start(void *pvParameters)
-// {
-//     // adsTaskHandle = all ads channels
-//     xTaskCreate(
-//         exp_start,           /* Task function. */
-//         "exp_start",         /* String with name of task. */
-//         10240,               /* Stack size in bytes. */
-//         NULL,                /* Parameter passed as input of the task */
-//         1,                   /* Priority of the task. */
-//         &expLoopTaskHandle); /* Task handle. */
-//     expLoopTaskHandle = xTaskGetCurrentTaskHandle();
-//     exp_build(SamplingType::ADS_DETAIL);
-//     vTaskDelete(NULL); // should i delete by task handle?
-// }
-
-// void exp_fast(void *pvParameters)
-// {
-//     expLoopTaskHandle = xTaskGetCurrentTaskHandle();
-//     exp_build(SamplingType::ADS);
-//     vTaskDelete(NULL); // should i delete by task handle?
-// }
-
-// void expTask()
-// {
-//     xTaskCreate(
-//         exp_start,           /* Task function. */
-//         "exp_start",         /* String with name of task. */
-//         10240,               /* Stack size in bytes. */
-//         NULL,                /* Parameter passed as input of the task */
-//         1,                   /* Priority of the task. */
-//         &expLoopTaskHandle); /* Task handle. */
-// }
-
 void exp_generic(void *pvParameters)
 {
     // Cast the passed parameter back to SamplingType
@@ -437,41 +321,16 @@ void M5_SD_JSON(const char *filename, String &configData)
         // M5.Lcd.println("with cmd /expSetup.json Content:");
         while (myFile.available())
         {
-            // M5.Lcd.write(myFile.read());
-            // or
             configData += char(myFile.read());
-            // DO NOT TURN ON BOTH AT THE SAME TIME
         }
-        // Serial.println("SD Config data: ");
-        // Serial.println(configData);
         myFile.close();
     }
     else
     {
-        M5.Lcd.println("error opening /hello.txt"); // If the file is not open.
-                                                    // 如果文件没有打开
+        M5.Lcd.println("error opening /expSetup.json"); // If the file is not open.
+                                                        // 如果文件没有打开
     }
 }
-
-// void displayMap(std::unordered_map<int, std::vector<std::pair<unsigned long, uint32_t>>> UOM_sensorData)
-// {
-//     Serial.println("Setting,Timestamp,Data");
-//     for (auto &entry : UOM_sensorData)
-//     {
-//         int setting = entry.first;
-//         for (auto &data : entry.second)
-//         {
-//             unsigned long timestamp = data.first; // Extract timestamp
-//             uint32_t gasResistance = data.second; // Extract gas resistance
-//             Serial.print(setting);
-//             Serial.print(",");
-//             Serial.print(timestamp);
-//             Serial.print(",");
-//             Serial.println(gasResistance);
-//         }
-//     }
-//     Serial.println("Data in object printed");
-// }
 
 void onPump()
 {

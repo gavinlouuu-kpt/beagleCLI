@@ -40,14 +40,30 @@ void switchBuffers()
 void adsFastSampleTask(TaskHandle_t *taskHandle)
 {
     xTaskCreate(
-        // sampleADScontinuous,    // Function that the task will run
-        temp_ADS,
+        sampleADScontinuous,    // Function that the task will run
         "ADS Fast Sample Task", // Name of the task
         20240,                  // Stack size
         NULL,                   // Parameters to pass (can be modified as needed)
         1,                      // Task priority
         taskHandle              // Pointer to handle
     );
+}
+
+void ADS_warm_up(const std::vector<int> &heaterSettings, int heatingTime, int warmDuration)
+{
+    uint32_t warm_up_Duration = millis();
+    while (millis() - warm_up_Duration < heatingTime)
+    {
+        for (int setting : heaterSettings)
+        {
+            ledcWrite(PWM_Heater, setting);
+            uint32_t heatDuration = millis();
+            while (millis() - heatDuration < heatingTime)
+            {
+                vTaskDelay(pdMS_TO_TICKS(10));
+            }
+        }
+    }
 }
 
 void ADS_continuous(std::vector<SingleChannel> *buffer, const std::vector<int> &heaterSettings, int heatingTime)
@@ -146,6 +162,7 @@ void sampleADScontinuous(void *pvParameters)
     }
 }
 
+// template functions
 //-----------------------------------------------------------------------------------------------
 
 #include <functional>
@@ -207,6 +224,7 @@ void temp_ADS(void *pvParameters)
     genericSampleADSContinuous(nullptr, ADS_continuous);
 }
 
+// Multichannel ADS
 //-----------------------------------------------------------------------------------------------
 
 struct MultiChannel
@@ -337,5 +355,3 @@ void saveADSData(std::unordered_map<int, std::vector<std::pair<unsigned long, st
     myFile.close();
     ADS_sensorData.clear(); // Ensure to clear the correct data structure
 }
-// template functions
-//-----------------------------------------------------------------------------------------------
