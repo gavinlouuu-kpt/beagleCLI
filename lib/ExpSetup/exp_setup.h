@@ -71,7 +71,7 @@ void saveADSData(std::unordered_map<int, std::vector<std::pair<unsigned long, st
 // void adsFastSampleTask();
 void adsFastSampleTask(TaskHandle_t *taskHandle);
 
-void ADS_warm_up(const std::vector<int> &heaterSettings, int heatingTime);
+void ADS_warm_up(const std::vector<int> &heaterSettings, int heatingTime, int warm_up_time);
 
 // BME experiment functions
 extern Adafruit_BME680 bme; // I2C
