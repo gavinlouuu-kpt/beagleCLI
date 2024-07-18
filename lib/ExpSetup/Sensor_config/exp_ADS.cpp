@@ -111,11 +111,11 @@ void sampleADScontinuous(void *pvParameters)
     const unsigned long saveInterval = 5000; // 5 seconds in milliseconds
     unsigned long lastSaveTime = millis();
     // ADSBuffer.reserve(bufferSize); // Reserve memory for buffer only within a function
-    currentBuffer->reserve(2500);
-    saveBuffer->reserve(2500);
+    currentBuffer->reserve(5000);
+    saveBuffer->reserve(5000);
     // Start the saving task
     TaskHandle_t savingTaskHandle;
-    xTaskCreate(dataSavingTask, "Data Saving Task", configMINIMAL_STACK_SIZE, NULL, 1, &savingTaskHandle);
+    xTaskCreate(dataSavingTask, "Data Saving Task", 10240, NULL, 1, &savingTaskHandle);
 
     for (;;)
     {
