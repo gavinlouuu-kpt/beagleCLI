@@ -17,8 +17,8 @@ struct SingleChannel
 
 std::vector<SingleChannel> ADSBuffer1;
 std::vector<SingleChannel> ADSBuffer2;
-std::vector<SingleChannel> *currentBuffer; // = &ADSBuffer1;
-std::vector<SingleChannel> *saveBuffer;    // = &ADSBuffer2;
+std::vector<SingleChannel> *currentBuffer = &ADSBuffer1;
+std::vector<SingleChannel> *saveBuffer = &ADSBuffer2;
 
 constexpr size_t bufferSize = 500;
 
@@ -51,8 +51,9 @@ void adsFastSampleTask(TaskHandle_t *taskHandle)
 
 void ADS_warm_up(const std::vector<int> &heaterSettings, int heatingTime, int warmDuration)
 {
-    uint32_t warm_up_Duration = millis();
-    while (millis() - warm_up_Duration < heatingTime)
+    Serial.println("Warming up the heater.");
+    uint32_t warm_up_Start = millis();
+    while (millis() - warm_up_Start < warmDuration)
     {
         for (int setting : heaterSettings)
         {
@@ -64,6 +65,8 @@ void ADS_warm_up(const std::vector<int> &heaterSettings, int heatingTime, int wa
             }
         }
     }
+    Serial.println("Warm up complete.");
+    // xTaskNotifyGive(expLoopTaskHandle);
 }
 
 void ADS_continuous(std::vector<SingleChannel> *buffer, const std::vector<int> &heaterSettings, int heatingTime)

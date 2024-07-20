@@ -172,6 +172,7 @@ void exp_loop(FirebaseJson config, int setup_count, SamplingType samplingType)
         // warm up logic here
         int warm_up_time = 30000;
         ADS_warm_up(heaterSettings, heatingTime, warm_up_time);
+        // ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
 
         if (duration == 0 || repeat == 0 || channels.size() == 0)
         {
