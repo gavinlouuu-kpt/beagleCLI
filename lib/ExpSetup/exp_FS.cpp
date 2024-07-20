@@ -193,3 +193,68 @@ String setupSave(int setup_tracker, int repeat_tracker, int channel_tracker, Str
     String uniqueFilename = currentPath + "/" + String(currentTime) + "s" + String(setup_tracker) + "c" + String(channel_tracker) + "r" + String(repeat_tracker) + ".csv";
     return uniqueFilename;
 }
+
+String setupSaveJSON(int setup_tracker, String exp_name)
+{
+    struct tm timeinfo;
+    if (!getLocalTime(&timeinfo))
+    {
+        Serial.println("Failed to obtain time");
+        return "";
+    }
+    char today[11];
+    strftime(today, sizeof(today), "%Y_%m_%d", &timeinfo);
+    char currentTime[9];
+    strftime(currentTime, sizeof(currentTime), "%H_%M_%S", &timeinfo);
+
+    String baseDir = "/" + String(today);
+    String expDir = baseDir + "/" + exp_name;
+
+    if (!ensureDirectoryExists(baseDir) || !ensureDirectoryExists(expDir))
+    {
+        Serial.println("Failed to ensure directories exist.");
+        return "";
+    }
+
+    if (setup_tracker != last_setup_tracker)
+    {
+        currentPath = createOrIncrementFolder(expDir);
+        last_setup_tracker = setup_tracker;
+    }
+
+    return currentPath;
+}
+
+void saveJSON(String filename, FirebaseJson json)
+{
+    filename = filename + "/expSetup.json";
+    // Ensure the directory exists
+    int lastSlashIndex = filename.lastIndexOf('/');
+    if (lastSlashIndex != -1)
+    {
+        String directory = filename.substring(0, lastSlashIndex);
+        if (!SD.exists(directory))
+        {
+            Serial.println("Directory does not exist, creating: " + directory);
+            if (!SD.mkdir(directory))
+            {
+                Serial.println("Failed to create directory: " + directory);
+                return;
+            }
+        }
+    }
+
+    File file = SD.open(filename.c_str(), FILE_WRITE);
+    Serial.println("Saving to: " + filename);
+    if (!file)
+    {
+        Serial.println("Failed to open file for writing");
+        return;
+    }
+
+    String jsonString;
+    json.toString(jsonString);
+    file.println(jsonString);
+    file.close();
+    Serial.println("File saved successfully");
+}

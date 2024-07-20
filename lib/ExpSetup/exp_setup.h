@@ -57,6 +57,9 @@ bool ensureDirectoryExists(String path);
 String incrementFolder(String folderPath);
 String createOrIncrementFolder(String folderPath);
 String setupSave(int setup_tracker, int repeat_tracker, int channel_tracker, String exp_name);
+String setupSaveJSON(int setup_tracker, String exp_name);
+
+void saveJSON(String filename, FirebaseJson json);
 
 // ADS experiment functions
 extern Adafruit_ADS1115 ads;

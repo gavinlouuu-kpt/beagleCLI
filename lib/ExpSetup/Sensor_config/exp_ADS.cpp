@@ -24,7 +24,7 @@ constexpr size_t bufferSize = 500;
 
 void switchBuffers()
 {
-    Serial.println("Switching buffers.");
+    // Serial.println("Switching buffers.");
     if (currentBuffer == &ADSBuffer1)
     {
         currentBuffer = &ADSBuffer2;
@@ -103,7 +103,7 @@ void saveADSDataFromBuffer(const std::vector<SingleChannel> &buffer, const Strin
         myFile.printf("%d,%lu,%d\n", data.setting, data.timestamp, data.channel_0);
     }
     myFile.close();
-    Serial.println("Data dumped to: " + filename);
+    // Serial.println("Data dumped to: " + filename);
 }
 
 String filename;

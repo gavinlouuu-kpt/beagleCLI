@@ -169,6 +169,10 @@ void exp_loop(FirebaseJson config, int setup_count, SamplingType samplingType)
         int repeat = getInt(config, i, REPEAT);
         std::vector<int> channels = getArr(config, i, CHANNEL);
 
+        String saveJSONpath = setupSaveJSON(i, exp_name);
+        saveJSON(saveJSONpath, config);
+        Serial.println("SETUP: Saving JSON file to: " + saveJSONpath);
+
         // warm up logic here
         int warm_up_time = 30000;
         ADS_warm_up(heaterSettings, heatingTime, warm_up_time);
