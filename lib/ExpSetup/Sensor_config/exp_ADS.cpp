@@ -146,7 +146,7 @@ void sampleADScontinuous(void *pvParameters)
         while (true)
         {
             ADS_continuous(currentBuffer, heaterSettings, heatingTime);
-            Serial.print("*");
+            // Serial.print("*");
 
             if (millis() - lastSaveTime >= saveInterval || currentBuffer->size() >= bufferSize)
             {
