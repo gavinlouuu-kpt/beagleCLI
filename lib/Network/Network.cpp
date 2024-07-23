@@ -2,7 +2,7 @@
 #include <Network.h>
 #include <WiFi.h>
 #include <time.h>
-#include <Init.h>
+// #include <Init.h>
 #include <FirebaseJson.h>
 #include <map>
 #include <beagleCLI.h>
@@ -13,6 +13,8 @@
 #include <exp_setup.h>
 
 TaskHandle_t ntCheckTaskHandler;
+long gmtOffset_sec = 28800;
+int daylightOffset_sec = 0;
 
 AsyncWebServer server(80);
 

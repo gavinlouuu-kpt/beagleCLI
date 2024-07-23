@@ -5,7 +5,57 @@
 #include <vector>
 #include <sstream>
 #include <SD.h>
+#include <M5Stack.h>
 
+const int maxRetries = 10;
+int errorCount = 0;
+
+bool initializeSDCard()
+{
+    SD.end();   // Stop SPI communication before reinitializing
+    delay(100); // Short delay to ensure SPI is stopped
+    if (!SD.begin(TFCARD_CS_PIN, SPI, 40000000))
+    {
+        Serial.println("SD card initialization failed!");
+        return false;
+    }
+    Serial.println("SD card initialization done.");
+    return true;
+}
+
+bool checkAndRecoverSDCard()
+{
+    static int retryCount = 0;
+
+    if (SD.exists("/"))
+    {
+        return true; // SD card is available
+    }
+    else
+    {
+        // Increment the error count
+        retryCount++;
+
+        // Try to reinitialize SD card if opening file fails
+        if (retryCount < maxRetries)
+        {
+            Serial.print("Retrying SD card initialization. Attempt: ");
+            Serial.println(retryCount);
+            if (initializeSDCard())
+            {
+                retryCount = 0; // Reset retry count after successful initialization
+                return true;
+            }
+        }
+        else
+        {
+            Serial.println("Max retries reached. SD card operation failed.");
+            return false;
+        }
+    }
+
+    return false;
+}
 std::vector<int> stringToArray(const std::string &str)
 {
     std::vector<int> result;
@@ -172,8 +222,8 @@ String setupSave(int setup_tracker, int repeat_tracker, int channel_tracker, Str
     }
     char today[11];
     strftime(today, sizeof(today), "%Y_%m_%d", &timeinfo);
-    char currentTime[9];
-    strftime(currentTime, sizeof(currentTime), "%H_%M_%S", &timeinfo);
+    char currentTime[20];
+    strftime(currentTime, sizeof(currentTime), "%Y%m%d%H%M%S", &timeinfo);
 
     String baseDir = "/" + String(today);
     String expDir = baseDir + "/" + exp_name;

@@ -73,6 +73,11 @@ void ADS_continuous(std::vector<SingleChannel> *buffer, const std::vector<int> &
 {
     for (int setting : heaterSettings)
     {
+        if (!checkAndRecoverSDCard())
+        {
+            Serial.println("Failed to recover SD card. Cannot save data.");
+            return;
+        }
         ledcWrite(PWM_Heater, setting);
         unsigned long timestamp = millis();              // Get current timestamp
         int16_t result = ads.getLastConversionResults(); // Get sensor reading
@@ -88,6 +93,7 @@ void ADS_continuous(std::vector<SingleChannel> *buffer, const std::vector<int> &
 
 void saveADSDataFromBuffer(const std::vector<SingleChannel> &buffer, const String &filename, String header)
 {
+
     File myFile = SD.open(filename, FILE_APPEND); // Change here to FILE_APPEND
     if (!myFile)
     {

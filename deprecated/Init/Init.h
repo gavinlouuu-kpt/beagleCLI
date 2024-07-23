@@ -16,10 +16,9 @@ extern String USER_EMAIL;
 extern String USER_PASSWORD;
 extern String API_KEY;
 extern String DATABASE_URL;
-extern long gmtOffset_sec;
-extern int daylightOffset_sec;
+// extern long gmtOffset_sec;
+// extern int daylightOffset_sec;
 extern int FIREBASE_PATH;
 extern String STORAGE_BUCKET_ID;
-
 
 #endif

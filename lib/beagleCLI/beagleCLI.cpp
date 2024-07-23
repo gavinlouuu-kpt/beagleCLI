@@ -8,7 +8,7 @@
 #include <beagleCLI.h>
 #include <Network.h>
 #include <Wire.h>
-#include <Init.h>
+// #include <Init.h>
 #include <pinConfig.h>
 #include <Hardware.h>
 #include <functional>
@@ -19,6 +19,30 @@
 std::map<String, std::function<void()>> commandMap;
 using CommandHandler = std::function<void(int)>;
 std::map<String, CommandHandler> commandHandlers;
+
+// create a rtos function that prints out free heap size every second
+void printFreeHeap(void *parameter)
+{
+    for (;;)
+    {
+        Serial.print("Free heap: ");
+        Serial.println(ESP.getFreeHeap());
+        vTaskDelay(1000 / portTICK_PERIOD_MS);
+    }
+}
+
+// xTaskcreate and pass printFreeHeap to the function
+void setupFreeHeapTask()
+{
+    xTaskCreatePinnedToCore(
+        printFreeHeap,  // Function to implement the task
+        "FreeHeapTask", // Name of the task
+        1024,           // Stack size in words
+        NULL,           // Task input parameter
+        1,              // Priority of the task
+        NULL,           // Task handle
+        0);             // Core where the task should run
+}
 
 void registerCommand(const String &command, CommandHandler handler)
 {

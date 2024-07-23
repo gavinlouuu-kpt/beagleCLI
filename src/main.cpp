@@ -1,7 +1,7 @@
 #include <Arduino.h>
 #include <Wire.h>
 #include <pinConfig.h>
-#include <Init.h>
+// #include <Init.h>
 #include <FirebaseJson.h>
 #include <WiFi.h>
 #include <Update.h>
@@ -18,7 +18,7 @@
 
 void SD_check()
 {
-  if (!SD.begin())
+  if (!SD.begin(TFCARD_CS_PIN, SPI, 16000000))
   {
     M5.Lcd.setTextColor(RED);
     M5.Lcd.println("SD Card Error");
@@ -77,6 +77,7 @@ void setup()
 
   SD_check();
   ADS_check();
+  // setupFreeHeapTask();
 }
 
 void loop()
