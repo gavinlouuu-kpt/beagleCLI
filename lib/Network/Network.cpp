@@ -274,9 +274,9 @@ String functionKeys()
 {
     String html =
         "<ul>"
-        "<li><a href='/handleDetailADSFunction'>Detail ADS Function</a></li>"
+        // "<li><a href='/handleDetailADSFunction'>Detail ADS Function</a></li>"
         "<li><a href='/handleADSFunction'>ADS Function</a></li>"
-        "<li><a href='/handleBMEFunction'>BME Function</a></li>"
+        // "<li><a href='/handleBMEFunction'>BME Function</a></li>"
         // Add more links as needed
         "</ul>"
         "<a href='/?dir=/'>Home</a></body></html>";

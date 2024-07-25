@@ -5,8 +5,11 @@
 #include <SD.h> // SD card library but included in M5 library
 // #include <Adafruit_ADS1X15.h>
 #include <pinConfig.h>
+#include <CircularBuffer.hpp>
 
 String continuousADS_Header = "Setting,Timestamp,Channel_0";
+String bme_Header = "Timestamp,Temperature,Humidity,Pressure";
+// SemaphoreHandle_t sdCardMutex;
 
 struct SingleChannel
 {
@@ -15,12 +18,42 @@ struct SingleChannel
     int16_t channel_0;
 };
 
-std::vector<SingleChannel> ADSBuffer1;
-std::vector<SingleChannel> ADSBuffer2;
-std::vector<SingleChannel> *currentBuffer = &ADSBuffer1;
-std::vector<SingleChannel> *saveBuffer = &ADSBuffer2;
+struct BME680Data
+{
+    unsigned long timestamp;
+    float temperature;
+    float humidity;
+    float pressure;
+    // uint32_t gas_resistance;
+};
 
 constexpr size_t bufferSize = 500;
+constexpr size_t bme_bufferSize = 1000;
+
+CircularBuffer<BME680Data, bme_bufferSize> bmeBuffer1;
+CircularBuffer<BME680Data, bme_bufferSize> bmeBuffer2;
+CircularBuffer<BME680Data, bme_bufferSize> *currentBME_Buffer = &bmeBuffer1;
+CircularBuffer<BME680Data, bme_bufferSize> *saveBME_Buffer = &bmeBuffer2;
+
+CircularBuffer<SingleChannel, bufferSize> ADSBuffer1;
+CircularBuffer<SingleChannel, bufferSize> ADSBuffer2;
+CircularBuffer<SingleChannel, bufferSize> *currentBuffer = &ADSBuffer1;
+CircularBuffer<SingleChannel, bufferSize> *saveBuffer = &ADSBuffer2;
+
+void switchBME_Buffers()
+{
+    // Serial.println("Switching buffers.");
+    if (currentBME_Buffer == &bmeBuffer1)
+    {
+        currentBME_Buffer = &bmeBuffer2;
+        saveBME_Buffer = &bmeBuffer1;
+    }
+    else
+    {
+        currentBME_Buffer = &bmeBuffer1;
+        saveBME_Buffer = &bmeBuffer2;
+    }
+}
 
 void switchBuffers()
 {
@@ -35,6 +68,18 @@ void switchBuffers()
         currentBuffer = &ADSBuffer1;
         saveBuffer = &ADSBuffer2;
     }
+}
+TaskHandle_t BME_ENV_taskHandle;
+void BME_ENV_SampleTask()
+{
+    xTaskCreate(
+        BME_ENV_loop,          // Function that the task will run
+        "BME ENV Sample Task", // Name of the task
+        10240,                 // Stack size
+        NULL,                  // Parameters to pass (can be modified as needed)
+        1,                     // Task priority
+        &BME_ENV_taskHandle    // Pointer to handle
+    );
 }
 
 void adsFastSampleTask(TaskHandle_t *taskHandle)
@@ -69,15 +114,10 @@ void ADS_warm_up(const std::vector<int> &heaterSettings, int heatingTime, int wa
     // xTaskNotifyGive(expLoopTaskHandle);
 }
 
-void ADS_continuous(std::vector<SingleChannel> *buffer, const std::vector<int> &heaterSettings, int heatingTime)
+void ADS_continuous(CircularBuffer<SingleChannel, bufferSize> *buffer, const std::vector<int> &heaterSettings, int heatingTime)
 {
     for (int setting : heaterSettings)
     {
-        if (!checkAndRecoverSDCard())
-        {
-            Serial.println("Failed to recover SD card. Cannot save data.");
-            return;
-        }
         ledcWrite(PWM_Heater, setting);
         unsigned long timestamp = millis();              // Get current timestamp
         int16_t result = ads.getLastConversionResults(); // Get sensor reading
@@ -87,29 +127,94 @@ void ADS_continuous(std::vector<SingleChannel> *buffer, const std::vector<int> &
         data.timestamp = timestamp; // Assign the timestamp
         data.channel_0 = result;    // Assign the sensor result
 
-        buffer->push_back(data); // Push structured data to circular buffer
+        buffer->push(data); // Push structured data to circular buffer
     }
 }
 
-void saveADSDataFromBuffer(const std::vector<SingleChannel> &buffer, const String &filename, String header)
+void saveADSDataFromBuffer(const CircularBuffer<SingleChannel, bufferSize> &buffer, const String &filename, String header)
 {
+    if (xSemaphoreTake(sdCardMutex, portMAX_DELAY) == pdTRUE)
+    {
+        File myFile = SD.open(filename, FILE_APPEND); // Change here to FILE_APPEND
+        if (!myFile)
+        {
+            Serial.println("Error opening file for writing");
+            xSemaphoreGive(sdCardMutex);
+            return;
+        }
+        if (myFile.size() == 0) // The header should only be written if the file was newly created or is empty
+        {
+            myFile.println(header); // Write header only if file is empty
+        }
+        for (size_t i = 0; i < buffer.size(); ++i)
+        {
+            const auto &data = buffer[i];
+            myFile.printf("%d,%lu,%d\n", data.setting, data.timestamp, data.channel_0);
+        }
+        myFile.close();
+        // Serial.println("Data dumped to: " + filename);
+        xSemaphoreGive(sdCardMutex);
+    }
 
-    File myFile = SD.open(filename, FILE_APPEND); // Change here to FILE_APPEND
-    if (!myFile)
-    {
-        Serial.println("Error opening file for writing");
-        return;
-    }
-    if (myFile.size() == 0) // The header should only be written if the file was newly created or is empty
-    {
-        myFile.println(header); // Write header only if file is empty
-    }
-    for (const auto &data : buffer)
-    {
-        myFile.printf("%d,%lu,%d\n", data.setting, data.timestamp, data.channel_0);
-    }
-    myFile.close();
+    // File myFile = SD.open(filename, FILE_APPEND); // Change here to FILE_APPEND
+    // if (!myFile)
+    // {
+    //     Serial.println("Error opening file for writing");
+    //     return;
+    // }
+    // if (myFile.size() == 0) // The header should only be written if the file was newly created or is empty
+    // {
+    //     myFile.println(header); // Write header only if file is empty
+    // }
+    // for (size_t i = 0; i < buffer.size(); ++i)
+    // {
+    //     const auto &data = buffer[i];
+    //     myFile.printf("%d,%lu,%d\n", data.setting, data.timestamp, data.channel_0);
+    // }
+    // myFile.close();
     // Serial.println("Data dumped to: " + filename);
+}
+
+void BME_sampling(CircularBuffer<BME680Data, bme_bufferSize> *buffer)
+{
+    if (bme.performReading()) // Perform a reading
+    {
+        unsigned long timestamp = millis(); // Get current timestamp
+        BME680Data data;                    // Create a struct instance
+        data.timestamp = timestamp;         // Assign the timestamp
+        data.temperature = bme.temperature; // Assign the sensor result
+        // Serial.print("BME680: Temperature: " + String(data.temperature));
+        data.humidity = bme.humidity; // Assign the sensor result
+        // Serial.print(", Humidity: " + String(data.humidity));
+        data.pressure = bme.pressure; // Assign the sensor result
+        // Serial.print(", Pressure: " + String(data.pressure));
+        buffer->push(data); // Push structured data to circular buffer
+    }
+}
+String BMEfilename;
+void saveBME_DataFromBuffer(const CircularBuffer<BME680Data, bme_bufferSize> &buffer, const String &filename, String header)
+{
+    if (xSemaphoreTake(sdCardMutex, portMAX_DELAY) == pdTRUE)
+    {
+        File myFile = SD.open(filename, FILE_APPEND); // Change here to FILE_APPEND
+        if (!myFile)
+        {
+            Serial.println("Error opening file for writing");
+            xSemaphoreGive(sdCardMutex);
+            return;
+        }
+        if (myFile.size() == 0) // The header should only be written if the file was newly created or is empty
+        {
+            myFile.println(header); // Write header only if file is empty
+        }
+        for (size_t i = 0; i < buffer.size(); ++i)
+        {
+            const auto &data = buffer[i];
+            myFile.printf("%lu,%.2f,%.2f,%.2f\n", data.timestamp, data.temperature, data.humidity, data.pressure);
+        }
+        myFile.close();
+        xSemaphoreGive(sdCardMutex);
+    }
 }
 
 String filename;
@@ -124,12 +229,64 @@ void dataSavingTask(void *pvParameters)
     }
 }
 
+void BME_ENV_SavingTask(void *pvParameters)
+{
+    for (;;)
+    {
+        ulTaskNotifyTake(pdTRUE, portMAX_DELAY); // Wait for notification from the data collection task
+        saveBME_DataFromBuffer(*saveBME_Buffer, BMEfilename, bme_Header);
+        saveBME_Buffer->clear();
+    }
+}
+
+void BME_ENV_loop(void *pvParameters)
+{
+    const unsigned long saveInterval = 10000; // 5 seconds in milliseconds
+    unsigned long lastSaveTime = millis();
+    Serial.println("BME_ENV_loop: Starting BME ENV Saving Task");
+    TaskHandle_t BMEsavingTaskHandle; // Start the saving task
+    xTaskCreate(BME_ENV_SavingTask, "BME ENV Saving Task", 4096, NULL, 1, &BMEsavingTaskHandle);
+
+    for (;;)
+    {
+        // Wait for a notification to start data acquisition
+        Serial.println("BME_ENV_loop: Waiting for notification to start data acquisition.");
+        ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+        Serial.println("BME_ENV_loop: Start data acquisition.");
+        currentBME_Buffer->clear();
+
+        // Perform data acquisition continuously until notified to save data
+        while (true)
+        {
+            BME_sampling(currentBME_Buffer);
+
+            if (millis() - lastSaveTime >= saveInterval || currentBME_Buffer->size() >= bme_bufferSize)
+            {
+                switchBME_Buffers();
+                lastSaveTime = millis();              // Reset the timer after saving
+                xTaskNotifyGive(BMEsavingTaskHandle); // Notify the saving task to save the data
+            }
+            // Check if there's a notification to save data
+            if (ulTaskNotifyTake(pdTRUE, 0)) // Check without waiting
+            {
+                Serial.println("BME_ENV_loop: Data saving notification received.");
+                break;
+            }
+        }
+        if (!currentBuffer->isEmpty())
+        {
+            switchBME_Buffers();
+            xTaskNotifyGive(BMEsavingTaskHandle); // Notify the saving task to save the data
+        }
+        Serial.println("BME_ENV_loop: Data saving complete.");
+        xTaskNotifyGive(samplingTask);
+    }
+}
+
 void sampleADScontinuous(void *pvParameters)
 {
     const unsigned long saveInterval = 5000; // 5 seconds in milliseconds
     unsigned long lastSaveTime = millis();
-    currentBuffer->reserve(bufferSize);
-    saveBuffer->reserve(bufferSize);
     TaskHandle_t savingTaskHandle; // Start the saving task
     xTaskCreate(dataSavingTask, "Data Saving Task", 4096, NULL, 1, &savingTaskHandle);
 
@@ -139,9 +296,14 @@ void sampleADScontinuous(void *pvParameters)
         Serial.println("RUNNER: Waiting for notification to start data acquisition.");
         ulTaskNotifyTake(pdTRUE, portMAX_DELAY); // Start of a new experiment
         Serial.println("RUNNER: Start data acquisition.");
+
+        Serial.println("RUNNER: Give BME notification to start.");
+        xTaskNotifyGive(BME_ENV_taskHandle);
+
         currentBuffer->clear();
         // Global variable version
         filename = setupSave(setup_tracker, repeat_tracker, channel_tracker, exp_name);
+        BMEfilename = filename.substring(0, filename.length() - 4) + "_BME680.csv";
 
         while (true)
         {
@@ -160,77 +322,19 @@ void sampleADScontinuous(void *pvParameters)
                 break; // Stop data acquisition on notification
             }
         }
-        if (!currentBuffer->empty())
+        if (!currentBuffer->isEmpty())
         {
             switchBuffers();
             xTaskNotifyGive(savingTaskHandle); // Notify the saving task to save the data
         }
-
+        Serial.println("RUNNER: Give BME data saving signal");
+        xTaskNotifyGive(BME_ENV_taskHandle); // Notify the BME task to save the data
+        Serial.println("RUNNER: Waiting for BME data saving to complete.");
+        ulTaskNotifyTake(pdTRUE, portMAX_DELAY); // Wait for a notification from the BME_ENV task
         Serial.println("RUNNER: Data saving complete. Notifying expLoopTask.");
+
         xTaskNotifyGive(expLoopTaskHandle);
     }
-}
-
-// template functions
-//-----------------------------------------------------------------------------------------------
-
-#include <functional>
-
-using BufferType = std::vector<SingleChannel>; // Use SingleChannel for the buffer type
-using SamplingFunction = void (*)(BufferType *, const std::vector<int> &, int);
-
-void genericSampleADSContinuous(void *pvParameters, SamplingFunction sampleFunc)
-{
-    const unsigned long saveInterval = 5000; // 5 seconds in milliseconds
-    unsigned long lastSaveTime = millis();
-
-    currentBuffer->reserve(bufferSize);
-    saveBuffer->reserve(bufferSize);
-
-    TaskHandle_t savingTaskHandle;
-    xTaskCreate(dataSavingTask, "Data Saving Task", 4096, NULL, 1, &savingTaskHandle);
-
-    for (;;)
-    {
-        Serial.println("RUNNER: Waiting for notification to start data acquisition.");
-        ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
-        currentBuffer->clear();
-        filename = setupSave(setup_tracker, repeat_tracker, channel_tracker, exp_name);
-
-        while (true)
-        {
-            sampleFunc(currentBuffer, heaterSettings, heatingTime);
-            Serial.print("*");
-
-            if (millis() - lastSaveTime >= saveInterval || currentBuffer->size() >= bufferSize)
-            {
-                switchBuffers();
-                lastSaveTime = millis();
-                xTaskNotifyGive(savingTaskHandle);
-            }
-
-            if (ulTaskNotifyTake(pdTRUE, 0))
-            {
-                Serial.println("RUNNER: Data saving notification received.");
-                break;
-            }
-        }
-
-        if (!currentBuffer->empty())
-        {
-            switchBuffers();
-            xTaskNotifyGive(savingTaskHandle);
-        }
-
-        Serial.println("RUNNER: Data saving complete. Notifying expLoopTask.");
-        xTaskNotifyGive(expLoopTaskHandle);
-    }
-}
-
-void temp_ADS(void *pvParameters)
-{
-    // Call the generic function with the specific sampling function
-    genericSampleADSContinuous(nullptr, ADS_continuous);
 }
 
 // Multichannel ADS

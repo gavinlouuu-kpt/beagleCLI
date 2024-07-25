@@ -56,7 +56,8 @@
         "bitset": "cpp",
         "condition_variable": "cpp",
         "regex": "cpp",
-        "mutex": "cpp"
+        "mutex": "cpp",
+        "*.tpp": "cpp"
     },
     "cmake.sourceDirectory": "D:/code/BeagleCLI/lib/Adafruit BusIO"
 }

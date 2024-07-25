@@ -46,7 +46,7 @@ void deleteTask(TaskHandle_t *taskHandle)
         *taskHandle = NULL; // Set the handle to NULL after deleting the task
     }
 }
-
+TaskHandle_t samplingTask;
 TaskHandle_t samplingMethod(SamplingType samplingType)
 {
     TaskHandle_t taskHandle = NULL;
@@ -65,6 +65,12 @@ TaskHandle_t samplingMethod(SamplingType samplingType)
         ads.setGain(GAIN_ONE);
         ads.startADCReading(ADS1X15_REG_CONFIG_MUX_SINGLE_0, true); // Continuous mode
         adsFastSampleTask(&taskHandle);                             // Pass the address of the taskHandle
+        bme.begin();
+        bme.setTemperatureOversampling(BME680_OS_8X);
+        bme.setHumidityOversampling(BME680_OS_2X);
+        bme.setPressureOversampling(BME680_OS_4X);
+        bme.setIIRFilterSize(BME680_FILTER_SIZE_3);
+        BME_ENV_SampleTask();
     }
 
     return taskHandle; // Will be NULL if neither condition is met
@@ -150,7 +156,7 @@ int purgeChannel(int channel)
 
 void exp_loop(FirebaseJson config, int setup_count, SamplingType samplingType)
 {
-    TaskHandle_t samplingTask = samplingMethod(samplingType);
+    samplingTask = samplingMethod(samplingType);
 
     purgeAll();
 
@@ -195,18 +201,10 @@ void exp_loop(FirebaseJson config, int setup_count, SamplingType samplingType)
                 startTime = millis();
                 channel_tracker = cur_channel;
 
-                // Notify the sampling task to start data acquisition
-                // xTaskNotifyGive(adsTaskHandle);
-
-                if (samplingTask == NULL)
-                {
-                    Serial.println("SETUP: Sampling task handle is NULL");
-                }
-                else
-                {
-                    xTaskNotifyGive(samplingTask);
-                    Serial.println("SETUP: Sampling task notified");
-                }
+                xTaskNotifyGive(samplingTask);
+                Serial.println("SETUP: Sampling task notified");
+                // xTaskNotifyGive(BME_ENV_taskHandle);
+                // Serial.println("SETUP: BME task notified");
                 // xTaskNotifyGive(samplingTask);
 
                 Serial.println("SETUP: Running experiment for channel: " + String(cur_channel));
@@ -244,9 +242,11 @@ void exp_loop(FirebaseJson config, int setup_count, SamplingType samplingType)
                 // xTaskNotify(adsTaskHandle, 0, eIncrement);
                 xTaskNotify(samplingTask, 0, eIncrement);
                 Serial.println("SETUP: Sampling task notified for saving data");
+                // xTaskNotify(BME_ENV_taskHandle, 0, eIncrement);
+                // Serial.println("SETUP: BME task notified for saving data");
 
                 // Wait for the ADS sampling task to signal completion
-                Serial.println("SETUP: Waiting for sampling task to complete");
+                Serial.println("SETUP: Waiting for ADS sampling task to complete saving");
                 ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
                 Serial.println("SETUP: Received signal from sampling task");
             }
@@ -255,6 +255,7 @@ void exp_loop(FirebaseJson config, int setup_count, SamplingType samplingType)
     // deleteTaskBasedOnType(samplingType);
     Serial.println("SETUP: Deleting task");
     deleteTask(&samplingTask);
+    deleteTask(&BME_ENV_taskHandle);
     relay_off();
 
     Serial.println("SETUP: END of LOOP");
@@ -291,9 +292,10 @@ void exp_generic(void *pvParameters)
     // Delete the current task
     vTaskDelete(NULL);
 }
-
+SemaphoreHandle_t sdCardMutex;
 void startExperimentTask(SamplingType samplingType)
 {
+    sdCardMutex = xSemaphoreCreateMutex();
     // Allocate memory for passing the sampling type to the new task
     SamplingType *taskParam = new SamplingType(samplingType);
 

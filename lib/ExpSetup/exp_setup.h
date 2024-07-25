@@ -43,9 +43,11 @@ enum class SamplingType
 extern SamplingType samplingType;
 
 // RTOS task handles
-extern TaskHandle_t bmeTaskHandle, adsTaskHandle, expLoopTaskHandle, adsFastTaskHandle;
+extern TaskHandle_t bmeTaskHandle, adsTaskHandle, expLoopTaskHandle, adsFastTaskHandle, samplingTask;
 // void expTask();
 void startExperimentTask(SamplingType samplingType);
+extern SemaphoreHandle_t sdCardMutex;
+extern TaskHandle_t BME_ENV_taskHandle;
 
 // File system functions
 std::vector<int> stringToArray(const std::string &str);
@@ -57,6 +59,7 @@ bool ensureDirectoryExists(String path);
 String incrementFolder(String folderPath);
 String createOrIncrementFolder(String folderPath);
 String setupSave(int setup_tracker, int repeat_tracker, int channel_tracker, String exp_name);
+
 String setupSaveJSON(int setup_tracker, String exp_name);
 bool checkAndRecoverSDCard();
 
@@ -74,6 +77,8 @@ void ADSsampleTask(TaskHandle_t *taskHandle);
 void saveADSData(std::unordered_map<int, std::vector<std::pair<unsigned long, std::array<int16_t, 4>>>> &ADS_sensorData, int setup_tracker, int repeat_tracker, int channel_tracker, String exp_name);
 // void adsFastSampleTask();
 void adsFastSampleTask(TaskHandle_t *taskHandle);
+void BME_ENV_loop(void *pvParameters);
+void BME_ENV_SampleTask();
 
 void ADS_warm_up(const std::vector<int> &heaterSettings, int heatingTime, int warm_up_time);
 
