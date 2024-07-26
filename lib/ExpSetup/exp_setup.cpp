@@ -255,7 +255,10 @@ void exp_loop(FirebaseJson config, int setup_count, SamplingType samplingType)
     // deleteTaskBasedOnType(samplingType);
     Serial.println("SETUP: Deleting task");
     deleteTask(&samplingTask);
-    deleteTask(&BME_ENV_taskHandle);
+    // deleteTask(&BME_ENV_taskHandle);
+    vTaskDelete(&BME_ENV_taskHandle);
+    // vTaskDelete(&BMEsavingTaskHandle);
+    // vTaskDelete(&savingTaskHandle);
     relay_off();
 
     Serial.println("SETUP: END of LOOP");

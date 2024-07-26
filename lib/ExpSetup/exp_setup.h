@@ -48,6 +48,7 @@ extern TaskHandle_t bmeTaskHandle, adsTaskHandle, expLoopTaskHandle, adsFastTask
 void startExperimentTask(SamplingType samplingType);
 extern SemaphoreHandle_t sdCardMutex;
 extern TaskHandle_t BME_ENV_taskHandle;
+extern TaskHandle_t savingTaskHandle, BMEsavingTaskHandle;
 
 // File system functions
 std::vector<int> stringToArray(const std::string &str);

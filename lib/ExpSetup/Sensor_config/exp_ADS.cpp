@@ -239,12 +239,15 @@ void BME_ENV_SavingTask(void *pvParameters)
     }
 }
 
+TaskHandle_t savingTaskHandle;    // Start the saving task
+TaskHandle_t BMEsavingTaskHandle; // Start the saving task
+
 void BME_ENV_loop(void *pvParameters)
 {
     const unsigned long saveInterval = 10000; // 5 seconds in milliseconds
     unsigned long lastSaveTime = millis();
     Serial.println("BME_ENV_loop: Starting BME ENV Saving Task");
-    TaskHandle_t BMEsavingTaskHandle; // Start the saving task
+
     xTaskCreate(BME_ENV_SavingTask, "BME ENV Saving Task", 4096, NULL, 1, &BMEsavingTaskHandle);
 
     for (;;)
@@ -287,7 +290,7 @@ void sampleADScontinuous(void *pvParameters)
 {
     const unsigned long saveInterval = 5000; // 5 seconds in milliseconds
     unsigned long lastSaveTime = millis();
-    TaskHandle_t savingTaskHandle; // Start the saving task
+
     xTaskCreate(dataSavingTask, "Data Saving Task", 4096, NULL, 1, &savingTaskHandle);
 
     for (;;)
