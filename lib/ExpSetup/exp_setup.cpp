@@ -64,7 +64,8 @@ TaskHandle_t samplingMethod(SamplingType samplingType)
         ads.setDataRate(RATE_ADS1115_860SPS);
         ads.setGain(GAIN_ONE);
         ads.startADCReading(ADS1X15_REG_CONFIG_MUX_SINGLE_0, true); // Continuous mode
-        adsFastSampleTask(&taskHandle);                             // Pass the address of the taskHandle
+        // ads.startADCReading(ADS1X15_REG_CONFIG_MUX_DIFF_0_1, true);
+        adsFastSampleTask(&taskHandle); // Pass the address of the taskHandle
         bme.begin();
         bme.setTemperatureOversampling(BME680_OS_8X);
         bme.setHumidityOversampling(BME680_OS_2X);
@@ -208,6 +209,7 @@ void exp_loop(FirebaseJson config, int setup_count, SamplingType samplingType)
                 // xTaskNotifyGive(samplingTask);
 
                 Serial.println("SETUP: Running experiment for channel: " + String(cur_channel));
+
                 std::vector<uint8_t> on_command = switchCommand(1, cur_channel, 1);
                 Serial2.write(on_command.data(), on_command.size());
 
@@ -249,6 +251,15 @@ void exp_loop(FirebaseJson config, int setup_count, SamplingType samplingType)
                 Serial.println("SETUP: Waiting for ADS sampling task to complete saving");
                 ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
                 Serial.println("SETUP: Received signal from sampling task");
+                Serial.println("SETUP: SENSOR ANNEALING");
+                ledcWrite(PWM_Heater, 255);
+                uint32_t startAnneal = millis();
+                int anneal_time = 10000;
+                while (millis() - startAnneal < anneal_time)
+                {
+                    vTaskDelay(pdMS_TO_TICKS(10));
+                }
+                ADS_warm_up(heaterSettings, heatingTime, warm_up_time);
             }
         }
     }
@@ -256,9 +267,6 @@ void exp_loop(FirebaseJson config, int setup_count, SamplingType samplingType)
     Serial.println("SETUP: Deleting task");
     deleteTask(&samplingTask);
     // deleteTask(&BME_ENV_taskHandle);
-    vTaskDelete(&BME_ENV_taskHandle);
-    // vTaskDelete(&BMEsavingTaskHandle);
-    // vTaskDelete(&savingTaskHandle);
     relay_off();
 
     Serial.println("SETUP: END of LOOP");
@@ -275,7 +283,7 @@ void exp_build(SamplingType samplingType)
     FirebaseJson json;
     json.setJsonData(configData);
     int setupCount = count_setup(configData);
-    // Serial.println("Number of setups: " + String(setupCount));
+    Serial.println("Number of setups: " + String(setupCount));
     exp_loop(json, setupCount, samplingType);
 }
 

@@ -119,6 +119,12 @@ void ADS_continuous(CircularBuffer<SingleChannel, bufferSize> *buffer, const std
     for (int setting : heaterSettings)
     {
         ledcWrite(PWM_Heater, setting);
+        // non-blocking delay for heating time
+        uint32_t heatDuration = millis();
+        while (millis() - heatDuration < heatingTime)
+        {
+            vTaskDelay(pdMS_TO_TICKS(10));
+        }
         unsigned long timestamp = millis();              // Get current timestamp
         int16_t result = ads.getLastConversionResults(); // Get sensor reading
 
